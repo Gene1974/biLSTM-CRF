@@ -90,9 +90,7 @@ def label_batch_entity(tags, tag_list, scheme="BIOES"):
     for i in tags.shape[0]:
         entity += label_sentence_entity(tags[i], tag_list, scheme)
 
-def label_sentence_entity(tags, tag_list, scheme="BIOES"):
-    if scheme.upper() != "BIOES":
-        return
+def label_sentence_entity(tags, tag_list):
     if type(tags) == torch.Tensor:
         tags = tags.tolist()
     tags = [tag_list[tag] for tag in tags]
@@ -178,25 +176,6 @@ def padding(sentences, padding_value = 0, dim = 2):
         padded_data = [[word + [padding_value] * (max_word_len - len(word))for word in sentence] + [zero_padding] * (max_sen_len - len(sentence)) for sentence in sentences]
         padded_mask = [[[1] * len(word) + [0] * (max_word_len - len(word))for word in sentence] + [zero_mask] * (max_sen_len - len(sentence)) for sentence in sentences]
         return padded_data, padded_mask
-
-# load pretrains
-def load_glove(path):
-    word_list = []  # words, [word1, word2, ..., word n]
-    word_emb = []   # embeddings, [tensor1, tensor2, ..., tensor n]
-    word_to_ix = {} # {word: index}
-    idx = 0
-    with open(path, 'r') as glove:
-        # [word num1 num2 ... num100], [word2], ...
-        for line in glove.readlines():
-            data = line.strip().split(' ')
-            word = data[0]
-            embeds = [float(i) for i in data[1:]]
-            word_list.append(word)
-            word_emb.append(embeds)
-            word_to_ix[word] = idx
-            idx += 1
-    word_emb = torch.tensor(word_emb, dtype = torch.float) # [400000, 100]
-    return word_emb, word_list, word_to_ix
 
 def check_input_word(word_ids, word_vocab):
     for sentence in word_ids:

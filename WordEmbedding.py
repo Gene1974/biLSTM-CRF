@@ -1,21 +1,17 @@
 import torch
 import torch.nn as nn
-from Utils import logger
 
 class WordEmbedding(nn.Module):
     def __init__(self, word_vocab, use_pretrained):
         super().__init__()
-        self.word_emb_size = 100
         self.word_vocab = word_vocab
+        self.word_emb_size = word_vocab.word_emb.shape[1]
         self.n_words = len(word_vocab.word_to_ix)
         if use_pretrained:
-            # path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
-            # embed_list, embed_word_list, embed_word_to_ix = load_glove(path)
-            self.embed_list = word_vocab.embed_list
-            self.word_embeds = nn.Embedding.from_pretrained(self.embed_list)
+            self.word_emb = word_vocab.word_emb
+            self.word_embeds = nn.Embedding.from_pretrained(self.word_emb)
         else:
-            self.word_embeds = nn.Embedding(self.n_words, 100)
-        logger('Load pretrained word embedding. Shape: {}'.format(self.embed_list.shape))
+            self.word_embeds = nn.Embedding(self.n_words, self.word_emb_size)
 
     def forward(self, word_ids):
         '''

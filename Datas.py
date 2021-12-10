@@ -1,21 +1,6 @@
 import copy
 import torch
-from torch.utils.data import Dataset, Sampler
-from Utils import get_charset, get_wordset, get_tagset, padding, load_glove
-
-def bio1_bio2_simple(tags):
-    for i in range(len(tags)):
-        if i != 0 and tags[i][0] == 'I' and tags[i - 1][0] != 'I':
-            tags[i] = 'B'
-        else:
-            tags[i] = tags[i][0]
-    return tags
-
-def bio1_bio2(tags):
-    for i in range(len(tags)):
-        if i != 0 and tags[i][0] == 'I' and tags[i - 1][0] != 'I':
-            tags[i] = 'B' + tags[i][1:]
-    return tags
+from torch.utils.data import Dataset
 
 def bio1_bioes(tags):
     # [tag1, tag2, ..., tag n]
@@ -38,182 +23,198 @@ def bio1_bioes(tags):
             i += 1
     return new_tags
     
-def load_conll(path, scheme = 'BIOES'):
-    # [[[word1, word2, ..., word n], [tag1, tag2, ..., tag n]], [[], []], ...]
-    f = open(path, 'r')
-    lines = f.readlines()
-    f.close()
 
-    datas = [[]]
-    tags = [[]]
-    seq_length = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            datas.append([])
-            tags.append([])
-        else:
-            word, pos, syntactic, ner = line.split(' ')
-            datas[-1].append(word)
-            tags[-1].append(ner)
-    if not datas[-1]:
-        datas.pop()
-        tags.pop()
-    if scheme.upper() == 'BIOES':
-        tags = [bio1_bioes(tag) for tag in tags]
-    return datas, tags
-    
-def load_conll_dict(path, scheme = 'BIOES'):
-    # [[{'word': word, 'tag': tag}, {}, ...], [], ...]
-    f = open(path, 'r')
-    lines = f.readlines()
-    f.close()
-
-    sentences = [[]]
-    for line in lines:
-        line = line.strip()
-        if not line:
-            sentences.append([])
-        else:
-            word, pos, syntactic, ner = line.split(' ')
-            sentences[-1].append({"word": word, "tag": ner})
-    if not sentences[-1]:
-        sentences.pop()
-    if scheme.upper() == 'BIOES':
-        sentences = [[sentence[0], bio1_bioes(sentence[1])] for sentence in sentences]
-    return sentences 
-
+# load pretrains
 class WordVocab():
     def __init__(self):
-        self._make_mapping_from_pretrained()
-
-    def _make_mapping_from_pretrained(self):
-        path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
-        embed_list, embed_word_list, embed_word_to_ix = load_glove(path)
-        self.embed_list = embed_list
-        self.word_list = embed_word_list
-        self.word_to_ix = embed_word_to_ix
-
-        self.OOV_WORD = '<OOV>'
-        self.PAD_WORD = '<PAD>'
-        if self.PAD_WORD not in self.word_to_ix:
-            self.word_to_ix[self.PAD_WORD] = 0
-            self.word_list.insert(0, '<PAD>')
-            torch.cat((torch.tensor([[0. for _ in range(len(self.embed_list[0]))]]), self.embed_list), 0)
-        if self.OOV_WORD not in self.word_to_ix:
-            self.word_to_ix[self.OOV_WORD] = len(self.word_to_ix)
-            self.word_list.append('<OOV>')
-            torch.cat((self.embed_list, torch.tensor([[0. for _ in range(len(self.embed_list[0]))]])), 0)
-        # self.word_list = [key for key in self.word_to_ix]
+        self.OOV_TAG = '<OOV>'
+        self.PAD_TAG = '<PAD>'
+        pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
+        self.load_glove(pretrained_path, self.PAD_TAG, self.OOV_TAG)
         
-    def _make_mapping(self, sentences):
-        self.word_to_ix = get_wordset(sentences)
-        self.OOV_WORD = '<OOV>'
-        self.PAD_WORD = '<PAD>'
-        if self.PAD_WORD not in self.word_to_ix:
-            self.word_to_ix[self.PAD_WORD] = 0
-        if self.OOV_WORD not in self.word_to_ix:
-            self.word_to_ix[self.OOV_WORD] = len(self.word_to_ix)
-        self.word_list = [key for key in self.word_to_ix]
-
-    def map_to_ix(self, sentence):
-        return [self.word_to_ix[word] if word in self.word_to_ix else self.word_to_ix[self.OOV_WORD] for word in sentence]
-
-class CharVocab():
-    def __init__(self, sentences):
-        self._make_mapping(sentences)
+    def load_glove(self, path, pad_tag = '<PAD>', oov_tag = '<OOV'):
+        word_list = []  # words, [word1, word2, ..., word n]
+        word_emb = []   # embeddings, [tensor1, tensor2, ..., tensor n]
+        char_set = set()
+        with open(path, 'r') as glove:
+            for line in glove.readlines():
+                data = line.strip().split(' ') # [word emb1 emb2 ... emb n]
+                word = data[0]
+                embeds = [float(i) for i in data[1:]]
+                word_list.append(word)
+                word_emb.append(embeds)
+                char_set |= set(list(word))
+        
+        word_list.insert(0, pad_tag)
+        word_list.append(oov_tag)
+        word_emb.insert(0, [0.] * len(word_emb[0]))
+        word_emb.append([0.] * len(word_emb[0]))
+        word_emb = torch.tensor(word_emb, dtype = torch.float) # [400000, 100]
+        word_to_ix = {word_list[i]: i for i in range(len(word_list))}
+        
+        char_to_ix = {word_list[i]: i + 1 for i in range(len(char_set))}
+        char_to_ix[pad_tag] = 0
+        char_to_ix[oov_tag] = len(char_to_ix)
+        
+        self.word_to_ix = word_to_ix
+        self.char_to_ix = char_to_ix
+        self.word_emb = word_emb
+        self.word_list = word_list
+        return word_emb, word_list, word_to_ix, char_to_ix
     
-    def _make_mapping(self, sentences):
-        self.char_to_ix = get_charset(sentences)
-        self.OOV_WORD = '<OOV>'
-        self.PAD_WORD = '<PAD>'
-        if self.PAD_WORD not in self.char_to_ix:
-            self.char_to_ix[self.PAD_WORD] = 0
-        if self.OOV_WORD not in self.char_to_ix:
-            self.char_to_ix[self.OOV_WORD] = len(self.char_to_ix)
-
-    def map_to_ix(self, sentence):
-        return [[self.char_to_ix[char] if char in self.char_to_ix else self.char_to_ix[self.OOV_WORD] for char in word] for word in sentence]
+    def map_word(self, words, dim = 2):
+        if dim == 2: # words
+            return [self.word_to_ix[word] if word in self.word_to_ix else self.word_to_ix[self.OOV_TAG] for word in words]
+        if dim == 1:
+            return self.word_to_ix[words] if words in self.word_to_ix else self.word_to_ix[self.OOV_TAG]
+    
+    def map_char(self, words, dim = 2):
+        if dim == 2: # words
+            return [[self.char_to_ix[char] if char in self.char_to_ix else self.char_to_ix[self.OOV_TAG] for char in word] for word in words]
+        if dim == 1: # word
+            return [self.char_to_ix[char] if char in self.char_to_ix else self.char_to_ix[self.OOV_TAG] for char in words]
 
 # map BIOES tags
 class TagVocab():
-    def __init__(self, scheme):
-        self.scheme = scheme
-        self._make_mapping()
-    
-    def _make_mapping(self):
-        self.tag_to_ix = get_tagset(self.scheme)
+    def __init__(self):
         self.START_TAG = 'START'
         self.STOP_TAG = 'STOP'
         self.PAD_TAG = '<PAD>'
-        if self.PAD_TAG not in self.tag_to_ix:
-            self.tag_to_ix[self.PAD_TAG] = 0
-        if self.START_TAG not in self.tag_to_ix:
-            self.tag_to_ix[self.START_TAG] = len(self.tag_to_ix)
-        if self.STOP_TAG not in self.tag_to_ix:
-            self.tag_to_ix[self.STOP_TAG] = len(self.tag_to_ix)
+
+        tag_list = ['B-LOC', 'B-MISC', 'B-ORG', 'B-PER', 'I-LOC', 'I-MISC', 'I-ORG', 'I-PER',
+                    'E-LOC', 'E-MISC', 'E-ORG', 'E-PER', 'S-LOC', 'S-MISC', 'S-ORG', 'S-PER',
+                    'O']
+        self.tag_to_ix = {tag_list[i]: i + 1 for i in range(len(tag_list))}
+        self.tag_to_ix[self.PAD_TAG] = 0
+        self.tag_to_ix[self.START_TAG] = len(self.tag_to_ix)
+        self.tag_to_ix[self.STOP_TAG] = len(self.tag_to_ix)
         self.ix_to_tag = {value: key for key, value in self.tag_to_ix.items()}
 
-    def map_to_ix(self, tags):
-        return [self.tag_to_ix[tag] for tag in tags]
+    def map_tag(self, tags, dim = 2):
+        if dim == 2:
+            return [self.tag_to_ix[tag] for tag in tags]
+        if dim == 1:
+            return self.tag_to_ix[tags]
 
-# 
 class ConllDataset(Dataset):
-    def __init__(self, path, word_vocab = None, char_vocab = None, tag_vocab = None, scheme = 'BIOES', make_map = True):
+    def __init__(self, path, word_vocab = None, tag_vocab = None, make_map = True):
         super().__init__()
-        self.sentences, self.tags = load_conll(path, scheme)
-        #self.data = load_conll_dict(path, scheme)
-        self.scheme = scheme
-        if make_map:
-            self.word_vocab = WordVocab()
-            self.char_vocab = CharVocab(self.sentences)
-            self.tag_vocab = TagVocab(self.scheme)
-        else:
-            self.word_vocab = word_vocab
-            self.char_vocab = char_vocab
-            self.tag_vocab = tag_vocab
-        self.data = []
-        for i in range(len(self.sentences)): # sentence
-            self.data.append({
-                'text': self.sentences[i],
-                'word_ids': self.word_vocab.map_to_ix(self.sentences[i]),
-                'char_ids': self.char_vocab.map_to_ix(self.sentences[i]),
-                'tag_ids':  self.tag_vocab.map_to_ix(self.tags[i])
-            })
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.max_sen_len = 64
+        self.max_word_len = 16
+        self.PAD_TAG = '<PAD>'
+
+        self.word_vocab = word_vocab
+        self.tag_vocab = tag_vocab
+        if word_vocab == None:
+            self.vocab = WordVocab()
+        if tag_vocab == None:
+            self.tagvocab = TagVocab()
+            
+        self.text = []
+        self.word_ids = []
+        self.char_ids = []
+        self.tag_ids = []
+        self.word_masks = []
+        self.char_masks = []
+        self.load_conll(path)
+        
+        self.word_ids = torch.tensor(self.word_ids, dtype = torch.long, device = self.device)
+        self.char_ids = torch.tensor(self.char_ids, dtype = torch.long, device = self.device)
+        self.tag_ids = torch.tensor(self.tag_ids, dtype = torch.long, device = self.device)
+        self.word_masks = torch.tensor(self.word_masks, dtype = torch.bool, device = self.device)
+        self.char_masks = torch.tensor(self.char_masks, dtype = torch.bool, device = self.device)
+    
+    def load_conll(self, path):
+        f = open(path, 'r')
+        text = []
+        tags = []
+        for line in f.readlines():
+            line = line.strip()
+            if not line:
+                self.map_and_pad(text, tags)
+                text = []
+                tags = []
+            else:
+                word, _, _, ner = line.split(' ')
+                text.append(word.lower())
+                tags.append(ner)
+        f.close()
+    
+    def load_conll_map(self, path):
+        f = open(path, 'r')
+        word_list = []
+        self.word_to_ix = {self.PAD_TAG: 0}
+        self.char_to_ix = {self.PAD_TAG: 0}
+        text = []
+        tags = []
+        for line in f.readlines():
+            line = line.strip()
+            if not line:
+                self.map_and_pad(text, tags)
+                text = []
+                tags = []
+            else:
+                word, _, _, ner = line.split(' ')
+                word = word.lower()
+                if word not in self.word_to_ix:
+                    self.word_to_ix[word] = len(self.word_to_ix)
+                    word_list.append(word)
+                for char in word:
+                    if char not in self.char_to_ix:
+                        self.char_to_ix[char] = len(self.char_to_ix)
+                text.append(word)
+                tags.append(ner)
+        f.close()
+        # self.word_to_ix = word_to_ix
+        # self.char_to_ix = char_to_ix
+    
+    def map_and_pad(self, text, tags):
+        tags = bio1_bioes(tags)
+        word_ids = self.word_vocab.map_word(text, dim = 2)
+        char_ids = self.word_vocab.map_char(text, dim = 2)
+        tag_ids = self.tag_vocab.map_tag(tags)
+        
+        word_ids, word_mask = self.padding_fixed(word_ids, padding_value = 0, dim = 2)
+        char_ids, char_mask = self.padding_fixed(char_ids, padding_value = 0, dim = 3)
+        tag_ids, _ = self.padding_fixed(tag_ids, padding_value = 0, dim = 2)
+
+        self.text.append(text)
+        self.word_ids.append(word_ids)
+        self.char_ids.append(char_ids)
+        self.tag_ids.append(tag_ids)
+        self.word_masks.append(word_mask)
+        self.char_masks.append(char_mask)
+    
+    def padding_fixed(self, sentence, padding_value = 0, dim = 2):
+        '''
+        sentences: list, (list(list))
+        dim: 
+            dim = 2, word padding, result = (sen_len)
+            dim = 3, char padding, result = (sen_len, word_len)
+        '''
+        max_sen_len = self.max_sen_len
+        max_word_len = self.max_word_len
+        if dim == 2: # word padding
+            padded_data = sentence + [padding_value] * (max_sen_len - len(sentence))
+            padded_mask = [1] * len(sentence) + [0] * (max_sen_len - len(sentence))
+            return padded_data[: max_sen_len], padded_mask[: max_sen_len]
+        if dim == 3: # char padding, [[char1, char2, ..], [], ...]
+            zero_padding = [padding_value] * max_word_len # [0, 0, 0, ..]
+            zero_mask = [0] * max_word_len
+            padded_data = [word[: max_word_len] + [padding_value] * (max_word_len - len(word)) for word in sentence] + [zero_padding] * (max_sen_len - len(sentence))
+            padded_mask = [[1] * len(word[: max_word_len]) + [0] * (max_word_len - len(word)) for word in sentence] + [zero_mask] * (max_sen_len - len(sentence))
+            return padded_data[: max_sen_len], padded_mask[: max_sen_len]
 
     def __len__(self):
-        return len(self.data) # number of sentence
+        return len(self.text) # number of sentence
 
     def __getitem__(self, index):
         # [word1, word2, ..., word n], [tag1, tag2, ..., tag n] (without mapping)
-        return self.data[index]
-    
+        return self.text[index], self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index], self.char_masks[index]
+
     def get_mapping(self):
-        return self.word_vocab, self.char_vocab, self.tag_vocab
-    
-    def set_mapping(self, word_vocab, char_vocab, tag_vocab):
-        self.word_vocab, self.char_vocab, self.tag_vocab = word_vocab, char_vocab, tag_vocab
+        return self.vocab, self.tag_vocab
 
-def collate_fn_conll(batch_data):
-    '''
-    input:
-        batch_data: [dataset[i] for i in indices], (batch_size, sen_len)
-    output:
-        padded_data: dict
-        word_ids: tensor: (batch_size, sen_len)
-        char_ids: tensor: (batch_size, sen_len, word_len)
-        tag_ids: tensor: (batch_size, sen_len)
-    '''
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    padded_batch = {}
-    padded_batch["text"] = [d["text"] for d in batch_data]
-    word_ids, word_mask = padding([d["word_ids"] for d in batch_data], dim = 2)
-    padded_batch["word_ids"] = torch.tensor(word_ids, dtype = torch.long, device = device)
-    padded_batch["word_mask"] = torch.tensor(word_mask, dtype = torch.bool, device = device)
-    char_ids, char_mask = padding([d["char_ids"] for d in batch_data], dim = 3)
-    padded_batch["char_ids"] = torch.tensor(char_ids, dtype=torch.long, device = device)
-    padded_batch["char_mask"] = torch.tensor(char_mask, dtype=torch.bool, device = device)
-    dim = 2 if type(batch_data[0]["tag_ids"][0]) == int else 3
-    padded_batch["tag_ids"] = torch.tensor(padding([d["tag_ids"] for d in batch_data], dim=dim)[0], dtype=torch.long, device=device)
-    return padded_batch
-
+if __name__ == '__main__':
+    loader = WordVocab()

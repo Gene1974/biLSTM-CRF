@@ -8,17 +8,16 @@ from WordEmbedding import WordEmbedding
 from Utils import *
 
 class BiLSTM_CRF(nn.Module):
-    def __init__(self, word_vocab, char_vocab, tag_vocab, 
-            char_emb_dim, word_emb_dim, hidden_dim, num_layers, 
+    def __init__(self, word_vocab,tag_vocab, 
+            char_emb_dim, hidden_dim, num_layers, 
             batch_size, device, dropout = 0.5, 
             use_pretrained = True, use_char = True, use_crf = True, use_cnn = False):
         super(BiLSTM_CRF, self).__init__()
         self.word_vocab = word_vocab
-        self.char_vocab = char_vocab
         self.tag_vocab = tag_vocab
         
         self.char_emb_dim = char_emb_dim
-        self.word_emb_dim = word_emb_dim
+        self.word_emb_dim = word_vocab.word_emb.shape[1]
         if use_char:
             self.emb_dim = char_emb_dim + self.word_emb_dim
         else:
@@ -26,7 +25,7 @@ class BiLSTM_CRF(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.tagset_size = len(tag_vocab.tag_to_ix)
-        self.charset_size = len(char_vocab.char_to_ix)
+        self.charset_size = len(word_vocab.char_to_ix)
         
         self.batch_size = batch_size
         self.device = device
@@ -73,7 +72,7 @@ class BiLSTM_CRF(nn.Module):
         if not self.use_crf:
             return lstm_feats
         else:
-            if label == None:
+            if label is None:
                 predict = self.crf.viterbi_tags(lstm_feats, word_mask)
                 return predict
             else:
