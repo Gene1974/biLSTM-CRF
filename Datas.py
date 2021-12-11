@@ -116,14 +116,14 @@ class ConllDataset(Dataset):
         self.char_ids = []
         self.tag_ids = []
         self.word_masks = []
-        self.char_masks = []
+        #self.char_masks = []
         self.load_conll(path)
         
-        self.word_ids = torch.tensor(self.word_ids, dtype = torch.long, device = self.device)
-        self.char_ids = torch.tensor(self.char_ids, dtype = torch.long, device = self.device)
-        self.tag_ids = torch.tensor(self.tag_ids, dtype = torch.long, device = self.device)
-        self.word_masks = torch.tensor(self.word_masks, dtype = torch.bool, device = self.device)
-        self.char_masks = torch.tensor(self.char_masks, dtype = torch.bool, device = self.device)
+        self.word_ids = torch.tensor(self.word_ids, dtype = torch.long)
+        self.char_ids = torch.tensor(self.char_ids, dtype = torch.long)
+        self.tag_ids = torch.tensor(self.tag_ids, dtype = torch.long)
+        self.word_masks = torch.tensor(self.word_masks, dtype = torch.bool)
+        #self.char_masks = torch.tensor(self.char_masks, dtype = torch.bool, device = self.device)
     
     def load_conll(self, path):
         f = open(path, 'r')
@@ -184,7 +184,7 @@ class ConllDataset(Dataset):
         self.char_ids.append(char_ids)
         self.tag_ids.append(tag_ids)
         self.word_masks.append(word_mask)
-        self.char_masks.append(char_mask)
+        #self.char_masks.append(char_mask)
     
     def padding_fixed(self, sentence, padding_value = 0, dim = 2):
         '''
@@ -211,10 +211,33 @@ class ConllDataset(Dataset):
 
     def __getitem__(self, index):
         # [word1, word2, ..., word n], [tag1, tag2, ..., tag n] (without mapping)
-        return self.text[index], self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index], self.char_masks[index]
+        #return self.text[index], self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index], self.char_masks[index]
+        return self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index]
 
     def get_mapping(self):
         return self.vocab, self.tag_vocab
+
+
+def collate_conll(batch_data):
+    '''
+    input:
+        batch_data: [dataset[i] for i in indices], (batch_size, sen_len)
+    output:
+        padded_data: dict
+        word_ids: tensor: (batch_size, sen_len)
+        char_ids: tensor: (batch_size, sen_len, word_len)
+        tag_ids: tensor: (batch_size, sen_len)
+    '''
+    print(len(batch_data))
+    word_ids, char_ids, tag_ids, word_mask = batch_data
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
+
+    word_ids = word_ids[:, : sen_len].to(device)
+    char_ids = char_ids[:, : sen_len, :].to(device)
+    tag_ids = tag_ids[:, : sen_len].to(device)
+    word_mask = word_mask[:, : sen_len].to(device)
+    return word_ids, char_ids, tag_ids, word_mask
 
 if __name__ == '__main__':
     loader = WordVocab()

@@ -53,7 +53,7 @@ class BiLSTM_CRF(nn.Module):
             else:
                 nn.init.xavier_uniform_(param)
 
-    def forward(self, word_ids, word_mask, char_ids, char_mask, label = None): # (batch_size, sen_len)
+    def forward(self, word_ids, word_mask, char_ids, label = None): # (batch_size, sen_len)
         word_emb = self.word_embeds(word_ids) # (batch_size, sen_len, 100)
         if self.use_char:
             char_emb = self.char_embeds(char_ids) # (batch_size, sen_len, 30)
@@ -70,12 +70,15 @@ class BiLSTM_CRF(nn.Module):
         lstm_feats = self.dropout2(lstm_feats)
         
         if not self.use_crf:
+            if label is not None:
+                lstm_feats = self.dropout2(lstm_feats)
             return lstm_feats
         else:
             if label is None:
                 predict = self.crf.viterbi_tags(lstm_feats, word_mask)
                 return predict
             else:
+                lstm_feats = self.dropout2(lstm_feats)
                 log_likelihood = self.crf(lstm_feats, label, word_mask)
                 batch_size = word_ids.shape[0]
                 loss = -log_likelihood / batch_size

@@ -6,8 +6,9 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 
+from torch.utils.data import DataLoader
 from biLSTM import BiLSTM_CRF
-from Datas import ConllDataset, WordVocab, TagVocab
+from Datas import ConllDataset, WordVocab, TagVocab, collate_conll
 from pytorchtools import EarlyStopping
 from Utils import logger, label_sentence_entity
 
@@ -54,6 +55,11 @@ class Trainer():
         self.valid_set = ConllDataset(data_path + 'eng.testa', self.word_vocab, self.tag_vocab)
         logger('Load data. Train data: {}, Valid data: {}, Test data: {}'.format(len(self.train_set), len(self.valid_set), len(self.test_set)))
 
+        # self.train_loader = DataLoader(self.train_set, batch_size = self.batch_size, shuffle = False, collate_fn = collate_conll)
+        # for i, batch in enumerate(self.train_loader):
+        #     print(batch)
+        #     batch(batch)
+
     def train(self):
         model = self.model
         # optimizer = optim.SGD(model.parameters(), lr = self.lr, weight_decay = self.decay_rate, momentum = self.momentum)
@@ -74,14 +80,21 @@ class Trainer():
                 else:
                     batch = self.train_set[i:]
                 i += self.batch_size
-                text, word_ids, char_ids, tag_ids, word_mask, char_mask = batch
+                word_ids, char_ids, tag_ids, word_mask = batch
+
+                sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
+                word_ids = word_ids[:, : sen_len].to(self.device)
+                char_ids = char_ids[:, : sen_len, :].to(self.device)
+                tag_ids = tag_ids[:, : sen_len].to(self.device)
+                word_mask = word_mask[:, : sen_len].to(self.device)
                 
                 optimizer.zero_grad()
                 if self.use_crf:
-                    loss = model(word_ids, word_mask, char_ids, char_mask, tag_ids) # (batch_size, sen_len, tagset_size)
+                    loss = model(word_ids, word_mask, char_ids, tag_ids) # (batch_size, sen_len, tagset_size)
                 else:
-                    output = model(word_ids, word_mask, char_ids, char_mask) # (batch_size, sen_len, tagset_size)
+                    output = model(word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
                     output = output.permute(0, 2, 1) # (batch_size, tagset_size, sen_len)
+                    #output = torch.cat((output, torch.zeros(output.shape[0], output.shape[1], tag_ids.shape[1] - output.shape[2], device = self.device)), dim = 1)
                     loss = entrophy(output, tag_ids)
                 train_losses.append(loss.item())
                 loss.backward()
@@ -96,11 +109,17 @@ class Trainer():
                     else:
                         batch = self.valid_set[i:]
                     i += self.batch_size
-                    text, word_ids, char_ids, tag_ids, word_mask, char_mask = batch
+                    word_ids, char_ids, tag_ids, word_mask = batch
+                    sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
+                    word_ids = word_ids[:, : sen_len].to(self.device)
+                    char_ids = char_ids[:, : sen_len, :].to(self.device)
+                    tag_ids = tag_ids[:, : sen_len].to(self.device)
+                    word_mask = word_mask[:, : sen_len].to(self.device)
+
                     if self.use_crf:
-                        loss = model(word_ids, word_mask, char_ids, char_mask, tag_ids) # (batch_size, sen_len, tagset_size)
+                        loss = model(word_ids, word_mask, char_ids, tag_ids) # (batch_size, sen_len, tagset_size)
                     else:
-                        output = model(word_ids, word_mask, char_ids, char_mask) # (batch_size, sen_len, tagset_size)
+                        output = model(word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
                         output = output.permute(0, 2, 1) # (batch_size, tagset_size, sen_len)
                         loss = entrophy(output, tag_ids)
                     valid_losses.append(loss.item())
@@ -142,12 +161,17 @@ class Trainer():
                 else:
                     batch = self.test_set[i:]
                 i += self.batch_size
-                text, word_ids, char_ids, tag_ids, word_mask, char_mask = batch
+                word_ids, char_ids, tag_ids, word_mask = batch
+                sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
+                word_ids = word_ids[:, : sen_len].to(self.device)
+                char_ids = char_ids[:, : sen_len, :].to(self.device)
+                tag_ids = tag_ids[:, : sen_len].to(self.device)
+                word_mask = word_mask[:, : sen_len].to(self.device)
                 
                 if self.use_crf:
-                    predict = model(word_ids, word_mask, char_ids, char_mask) # (batch_size, sen_len)
+                    predict = model(word_ids, word_mask, char_ids) # (batch_size, sen_len)
                 else:
-                    output = model(word_ids, word_mask, char_ids, char_mask) # (batch_size, sen_len, tagset_size)
+                    output = model(word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
                     predict = torch.max(output, dim = 2).indices # (batch_size, sen_len)
                 correct += torch.sum(predict[word_mask] == tag_ids[word_mask]).item()
                 total += torch.sum(word_mask).item()
@@ -178,6 +202,6 @@ if __name__ == '__main__':
     #data_path = './data_small/'
     data_path = '/home/gene/Documents/Data/CoNLL2003/'
 
-    trainer = Trainer(data_path, epochs = 300, use_pretrained = True, use_char = True, use_crf = True)
+    trainer = Trainer(data_path, epochs = 100, use_pretrained = True, use_char = True, use_crf = True)
     trainer.train()
-    #trainer.load_model('model/model_12101755')
+    #trainer.load_model('model/model_12110226')
