@@ -13,10 +13,12 @@ from pytorchtools import EarlyStopping
 from Utils import logger, label_sentence_entity
 
 torch.manual_seed(1)
-#os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 class Trainer():
-    def __init__(self, data_path, epochs = 100, use_pretrained = True, use_char = True, use_crf = True, use_cnn = True):
+    def __init__(self, data_path, pretrained_path, epochs = 100, 
+        use_pretrained = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
+        attention_pooling = False):
         super().__init__()
 
         self.char_emb_dim = 30
@@ -29,25 +31,29 @@ class Trainer():
         self.use_char = use_char
         self.use_cnn = use_cnn
         self.use_crf = use_crf
+        self.use_lm = True
         self.lr = 0.0001
         self.momentum = 0.9
         self.decay_rate = 0.05
         self.gradient_clip = 5.0
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         logger('device = {}'.format(self.device))
-        logger('use_pretrained = {}, use_char = {}, use_crf = {}, use_cnn = {}'.format(use_pretrained, use_char, use_crf, use_cnn))
+        logger('use_pretrained = {}, use_char = {}, use_lm = {}, use_crf = {}, use_cnn = {}, atten_pool = {}'.format(use_pretrained, use_char, use_lm, use_crf, use_cnn, attention_pooling))
+        logger('dataset_path = {}'.format(data_path))
+        logger('pretrained_path = {}'.format(pretrained_path))
 
-        self.load_data(data_path)
+        self.load_data(data_path, pretrained_path)
 
         self.model = BiLSTM_CRF(
             self.word_vocab, self.tag_vocab, 
             self.char_emb_dim, self.hidden_dim, self.lstm_layers, 
             self.batch_size, self.device, self.dropout, 
-            use_pretrained = use_pretrained, use_char = use_char, use_crf = use_crf, use_cnn = use_cnn
+            use_pretrained = use_pretrained, use_char = use_char, use_crf = use_crf, use_cnn = use_cnn,
+            attention_pooling = attention_pooling
         ).to(self.device)
 
-    def load_data(self, data_path):
-        self.word_vocab = WordVocab()
+    def load_data(self, data_path, pretrained_path):
+        self.word_vocab = WordVocab(data_path, pretrained_path)
         self.tag_vocab = TagVocab()
         logger('Load pretrained word embedding. Shape: {}'.format(self.word_vocab.word_emb.shape))
         self.train_set = ConllDataset(data_path + 'eng.train', self.word_vocab, self.tag_vocab)
@@ -64,7 +70,7 @@ class Trainer():
         model = self.model
         # optimizer = optim.SGD(model.parameters(), lr = self.lr, weight_decay = self.decay_rate, momentum = self.momentum)
         optimizer = optim.Adam(model.parameters(), lr = 1e-4)
-        early_stopping = EarlyStopping(patience = 20, verbose = False)
+        early_stopping = EarlyStopping(patience = 10, verbose = False)
         entrophy = nn.CrossEntropyLoss()
 
         avg_train_losses = []
@@ -80,7 +86,7 @@ class Trainer():
                 else:
                     batch = self.train_set[i:]
                 i += self.batch_size
-                word_ids, char_ids, tag_ids, word_mask = batch
+                text, word_ids, char_ids, tag_ids, word_mask = batch
 
                 sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
                 word_ids = word_ids[:, : sen_len].to(self.device)
@@ -90,9 +96,9 @@ class Trainer():
                 
                 optimizer.zero_grad()
                 if self.use_crf:
-                    loss = model(word_ids, word_mask, char_ids, tag_ids) # (batch_size, sen_len, tagset_size)
+                    loss = model(text, word_ids, word_mask, char_ids, tag_ids) # (batch_size, sen_len, tagset_size)
                 else:
-                    output = model(word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
+                    output = model(text, word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
                     output = output.permute(0, 2, 1) # (batch_size, tagset_size, sen_len)
                     #output = torch.cat((output, torch.zeros(output.shape[0], output.shape[1], tag_ids.shape[1] - output.shape[2], device = self.device)), dim = 1)
                     loss = entrophy(output, tag_ids)
@@ -109,7 +115,7 @@ class Trainer():
                     else:
                         batch = self.valid_set[i:]
                     i += self.batch_size
-                    word_ids, char_ids, tag_ids, word_mask = batch
+                    text, word_ids, char_ids, tag_ids, word_mask = batch
                     sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
                     word_ids = word_ids[:, : sen_len].to(self.device)
                     char_ids = char_ids[:, : sen_len, :].to(self.device)
@@ -117,9 +123,9 @@ class Trainer():
                     word_mask = word_mask[:, : sen_len].to(self.device)
 
                     if self.use_crf:
-                        loss = model(word_ids, word_mask, char_ids, tag_ids) # (batch_size, sen_len, tagset_size)
+                        loss = model(text, word_ids, word_mask, char_ids, tag_ids) # (batch_size, sen_len, tagset_size)
                     else:
-                        output = model(word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
+                        output = model(text, word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
                         output = output.permute(0, 2, 1) # (batch_size, tagset_size, sen_len)
                         loss = entrophy(output, tag_ids)
                     valid_losses.append(loss.item())
@@ -161,7 +167,7 @@ class Trainer():
                 else:
                     batch = self.test_set[i:]
                 i += self.batch_size
-                word_ids, char_ids, tag_ids, word_mask = batch
+                text, word_ids, char_ids, tag_ids, word_mask = batch
                 sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
                 word_ids = word_ids[:, : sen_len].to(self.device)
                 char_ids = char_ids[:, : sen_len, :].to(self.device)
@@ -169,9 +175,9 @@ class Trainer():
                 word_mask = word_mask[:, : sen_len].to(self.device)
                 
                 if self.use_crf:
-                    predict = model(word_ids, word_mask, char_ids) # (batch_size, sen_len)
+                    predict = model(text, word_ids, word_mask, char_ids) # (batch_size, sen_len)
                 else:
-                    output = model(word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
+                    output = model(text, word_ids, word_mask, char_ids) # (batch_size, sen_len, tagset_size)
                     predict = torch.max(output, dim = 2).indices # (batch_size, sen_len)
                 correct += torch.sum(predict[word_mask] == tag_ids[word_mask]).item()
                 total += torch.sum(word_mask).item()
@@ -201,7 +207,10 @@ if __name__ == '__main__':
     #data_path = '/data/hyz/CoNLL2003/'
     #data_path = './data_small/'
     data_path = '/home/gene/Documents/Data/CoNLL2003/'
+    pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
+    #pretrained_path = '/home/gene/Documents/Data/Glove/glove.42B.300d.txt'
 
-    trainer = Trainer(data_path, epochs = 100, use_pretrained = True, use_char = True, use_crf = True)
+    trainer = Trainer(data_path, pretrained_path, epochs = 100, 
+                use_pretrained = True, use_char = True, use_lm = True, use_crf = True)
     trainer.train()
     #trainer.load_model('model/model_12110226')

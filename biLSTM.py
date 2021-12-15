@@ -5,13 +5,16 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from crf import CRF
 from CharEmbedding import CharEmbedding
 from WordEmbedding import WordEmbedding
+from LMEmbedding import LMEmbedding
+from AttentionPooling import AttentionPooling
 from Utils import *
 
 class BiLSTM_CRF(nn.Module):
-    def __init__(self, word_vocab,tag_vocab, 
+    def __init__(self, word_vocab, tag_vocab, 
             char_emb_dim, hidden_dim, num_layers, 
             batch_size, device, dropout = 0.5, 
-            use_pretrained = True, use_char = True, use_crf = True, use_cnn = False):
+            use_pretrained = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True, 
+            attention_pooling = False):
         super(BiLSTM_CRF, self).__init__()
         self.word_vocab = word_vocab
         self.tag_vocab = tag_vocab
@@ -22,6 +25,7 @@ class BiLSTM_CRF(nn.Module):
             self.emb_dim = char_emb_dim + self.word_emb_dim
         else:
             self.emb_dim = self.word_emb_dim
+
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.tagset_size = len(tag_vocab.tag_to_ix)
@@ -33,9 +37,18 @@ class BiLSTM_CRF(nn.Module):
         self.use_char = use_char
         self.use_cnn = use_cnn
         self.use_crf = use_crf
+        self.use_lm = use_lm
+        self.attention_pooling = attention_pooling
 
         self.word_embeds = WordEmbedding(word_vocab, use_pretrained)
-        self.char_embeds = CharEmbedding(self.charset_size, char_emb_dim, use_cnn = use_cnn)
+        self.char_embeds = CharEmbedding(self.charset_size, char_emb_dim, use_cnn, attention_pooling)
+        
+        if use_lm:
+            self.lm_embeds = LMEmbedding()
+            self.lm_emb_dim = self.lm_embeds.get_emb_dim()
+            self.emb_dim += self.lm_emb_dim
+        if attention_pooling:
+            self.atten_pool = AttentionPooling()
         
         self.dropout1 = nn.Dropout(p = dropout)
         self.dropout2 = nn.Dropout(p = dropout)
@@ -53,13 +66,19 @@ class BiLSTM_CRF(nn.Module):
             else:
                 nn.init.xavier_uniform_(param)
 
-    def forward(self, word_ids, word_mask, char_ids, label = None): # (batch_size, sen_len)
+    def forward(self, text, word_ids, word_mask, char_ids, label = None): # (batch_size, sen_len)
         word_emb = self.word_embeds(word_ids) # (batch_size, sen_len, 100)
+        embeds = word_emb
         if self.use_char:
-            char_emb = self.char_embeds(char_ids) # (batch_size, sen_len, 30)
-            embeds = torch.cat((word_emb, char_emb), dim = -1)
-        else: 
-            embeds = word_emb
+            char_emb = self.char_embeds(char_ids) # (batch_size, sen_len, max_sen_len, 30)
+            if self.attention_pooling:
+                char_emb = self.atten_pool(char_emb)
+            else: # max pooling
+                char_emb = torch.max(char_emb, dim = 3).values # (batch_size, max_sen_len, embed_size)
+            embeds = torch.cat((embeds, char_emb), dim = -1)
+        if self.use_lm:
+            lm_embeds = self.lm_embeds(text) # (batch_size, sen_len, 1024)
+            embeds = torch.cat((embeds, lm_embeds), dim = -1)
         
         embeds = self.dropout1(embeds)
         sen_len = torch.sum(word_mask, dim = 1, dtype = torch.int64).to('cpu') # (batch_size)

@@ -26,41 +26,59 @@ def bio1_bioes(tags):
 
 # load pretrains
 class WordVocab():
-    def __init__(self):
+    def __init__(self, dataset_path = None, pretrained_path = None):
         self.OOV_TAG = '<OOV>'
         self.PAD_TAG = '<PAD>'
-        pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
-        self.load_glove(pretrained_path, self.PAD_TAG, self.OOV_TAG)
+        if dataset_path is None:
+            dataset_path = '/home/gene/Documents/Data/CoNLL2003/'
+        if pretrained_path is None:
+            pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
+        self.load_dataset(dataset_path)
+        self.load_glove(pretrained_path)
+
+    def load_dataset(self, path):
+        self.word_list = [self.PAD_TAG, self.OOV_TAG]
+        self.word_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
+        self.char_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
+        self.load_conll_word(path + 'eng.train')
+        self.load_conll_word(path + 'eng.testa')
+        self.load_conll_word(path + 'eng.testb')
+
+    def load_conll_word(self, path):
+        f = open(path, 'r')
+        for line in f.readlines():
+            line = line.strip()
+            if line:
+                word, _, _, _ = line.split(' ')
+                word = word.lower()
+                if word not in self.word_to_ix:
+                    self.word_to_ix[word] = len(self.word_to_ix)
+                    self.word_list.append(word)
+                for char in word:
+                    if char not in self.char_to_ix:
+                        self.char_to_ix[char] = len(self.char_to_ix)
+        f.close()
         
-    def load_glove(self, path, pad_tag = '<PAD>', oov_tag = '<OOV'):
-        word_list = []  # words, [word1, word2, ..., word n]
-        word_emb = []   # embeddings, [tensor1, tensor2, ..., tensor n]
-        char_set = set()
+    def load_glove(self, path):
+        word_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
+        word_emb = []
         with open(path, 'r') as glove:
             for line in glove.readlines():
                 data = line.strip().split(' ') # [word emb1 emb2 ... emb n]
                 word = data[0]
                 embeds = [float(i) for i in data[1:]]
-                word_list.append(word)
+                word_to_ix[word] = len(word_to_ix)
                 word_emb.append(embeds)
-                char_set |= set(list(word))
         
-        word_list.insert(0, pad_tag)
-        word_list.append(oov_tag)
         word_emb.insert(0, [0.] * len(word_emb[0]))
-        word_emb.append([0.] * len(word_emb[0]))
-        word_emb = torch.tensor(word_emb, dtype = torch.float) # [400000, 100]
-        word_to_ix = {word_list[i]: i for i in range(len(word_list))}
+        word_emb.insert(0, [0.] * len(word_emb[0]))
         
-        char_to_ix = {word_list[i]: i + 1 for i in range(len(char_set))}
-        char_to_ix[pad_tag] = 0
-        char_to_ix[oov_tag] = len(char_to_ix)
-        
-        self.word_to_ix = word_to_ix
-        self.char_to_ix = char_to_ix
-        self.word_emb = word_emb
-        self.word_list = word_list
-        return word_emb, word_list, word_to_ix, char_to_ix
+        used_idx = [word_to_ix[word] if word in word_to_ix else word_to_ix[self.OOV_TAG] for word in self.word_list]
+        self.word_emb = torch.tensor(word_emb, dtype = torch.float)[used_idx]
+        return self.word_emb
+
+    def filter_words(self):
+        pass
     
     def map_word(self, words, dim = 2):
         if dim == 2: # words
@@ -97,7 +115,7 @@ class TagVocab():
             return self.tag_to_ix[tags]
 
 class ConllDataset(Dataset):
-    def __init__(self, path, word_vocab = None, tag_vocab = None, make_map = True):
+    def __init__(self, path, word_vocab = None, tag_vocab = None):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.max_sen_len = 64
@@ -106,10 +124,6 @@ class ConllDataset(Dataset):
 
         self.word_vocab = word_vocab
         self.tag_vocab = tag_vocab
-        if word_vocab == None:
-            self.vocab = WordVocab()
-        if tag_vocab == None:
-            self.tagvocab = TagVocab()
             
         self.text = []
         self.word_ids = []
@@ -141,34 +155,6 @@ class ConllDataset(Dataset):
                 tags.append(ner)
         f.close()
     
-    def load_conll_map(self, path):
-        f = open(path, 'r')
-        word_list = []
-        self.word_to_ix = {self.PAD_TAG: 0}
-        self.char_to_ix = {self.PAD_TAG: 0}
-        text = []
-        tags = []
-        for line in f.readlines():
-            line = line.strip()
-            if not line:
-                self.map_and_pad(text, tags)
-                text = []
-                tags = []
-            else:
-                word, _, _, ner = line.split(' ')
-                word = word.lower()
-                if word not in self.word_to_ix:
-                    self.word_to_ix[word] = len(self.word_to_ix)
-                    word_list.append(word)
-                for char in word:
-                    if char not in self.char_to_ix:
-                        self.char_to_ix[char] = len(self.char_to_ix)
-                text.append(word)
-                tags.append(ner)
-        f.close()
-        # self.word_to_ix = word_to_ix
-        # self.char_to_ix = char_to_ix
-    
     def map_and_pad(self, text, tags):
         tags = bio1_bioes(tags)
         word_ids = self.word_vocab.map_word(text, dim = 2)
@@ -179,7 +165,7 @@ class ConllDataset(Dataset):
         char_ids, char_mask = self.padding_fixed(char_ids, padding_value = 0, dim = 3)
         tag_ids, _ = self.padding_fixed(tag_ids, padding_value = 0, dim = 2)
 
-        self.text.append(text)
+        self.text.append(text[:self.max_sen_len]) # Elmo 不用 cut 多余的 char
         self.word_ids.append(word_ids)
         self.char_ids.append(char_ids)
         self.tag_ids.append(tag_ids)
@@ -212,10 +198,10 @@ class ConllDataset(Dataset):
     def __getitem__(self, index):
         # [word1, word2, ..., word n], [tag1, tag2, ..., tag n] (without mapping)
         #return self.text[index], self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index], self.char_masks[index]
-        return self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index]
+        return self.text[index], self.word_ids[index], self.char_ids[index], self.tag_ids[index], self.word_masks[index]
 
     def get_mapping(self):
-        return self.vocab, self.tag_vocab
+        return self.word_vocab, self.tag_vocab
 
 
 def collate_conll(batch_data):

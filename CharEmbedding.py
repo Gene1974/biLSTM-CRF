@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-from Utils import *
-
 class CharEmbedding(nn.Module):
     def __init__(self, n_chars, emb_dim, dropout = 0.5, use_cnn = True):
         super().__init__()
@@ -13,7 +11,7 @@ class CharEmbedding(nn.Module):
         self.char_embeds = nn.Embedding(self.n_chars, emb_dim)
         if use_cnn:
             self.dropout = nn.Dropout(p = dropout)
-            self.cnn = nn.Conv1d(in_channels = emb_dim, out_channels = emb_dim, kernel_size = 3, padding = 2)
+            self.cnn = nn.Conv1d(in_channels = emb_dim, out_channels = emb_dim, kernel_size = 3, padding = 1)
         
     def _init(self):
         nn.init.kaiming_uniform_(self.char_embeds, mode = 'fan_out')
@@ -38,8 +36,5 @@ class CharEmbedding(nn.Module):
             char_emb = char_emb.permute(0, 2, 1) # (batch_size * max_sen_len, embed_size, max_word_len)
             char_emb = self.dropout(char_emb)
             char_emb = self.cnn(char_emb) # (batch_size * max_sen_len, embed_size, max_word_len + 2)
-            char_emb = torch.max(char_emb, dim = 2).values # (batch_size * max_sen_len, embed_size)
-            char_emb = char_emb.reshape(batch_size, max_sen_len, emb_size) # (batch_size, max_sen_len, embed_size)
-        else:
-            char_emb = torch.max(char_emb, dim = 3).values # (batch_size, max_sen_len, embed_size)
+            char_emb = char_emb.reshape(batch_size, max_sen_len, -1, emb_size) # (batch_size, max_sen_len, max_word_len + 2, embed_size)
         return char_emb
