@@ -22,12 +22,14 @@ class CharEmbedding(nn.Module):
     def forward(self, char_ids):
         '''
         input:
-            char_ids: (batch_size, max_sen_len, max_word_len)
+            char_ids: (batch_size, max_sen_len, max_word_len), dim = 3
+                    (batch_size, max_sen_len), dim = 2
         output:
             char_embeds: (batch_size, max_sen_len, embed_size)
         '''
-        if char_ids.dim() == 2:
-            char_ids = torch.unsqueeze(char_ids, dim = 0)
+        dim = char_ids.dim()
+        if dim == 2:
+            char_ids = torch.unsqueeze(char_ids, dim = 1) # max_sen_len = 1
         batch_size, max_sen_len, max_word_len = char_ids.shape # (batch_size, max_sen_len, max_word_len)
         emb_size = self.emb_dim
         char_emb = self.char_embeds(char_ids) # (batch_size, max_sen_len, max_word_len, embed_size)
@@ -37,4 +39,6 @@ class CharEmbedding(nn.Module):
             char_emb = self.dropout(char_emb)
             char_emb = self.cnn(char_emb) # (batch_size * max_sen_len, embed_size, max_word_len + 2)
             char_emb = char_emb.reshape(batch_size, max_sen_len, -1, emb_size) # (batch_size, max_sen_len, max_word_len + 2, embed_size)
+        if dim == 2:
+            char_emb = torch.squeeze(char_emb, dim = 1)
         return char_emb
