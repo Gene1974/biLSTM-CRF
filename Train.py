@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 from torch.utils.data import DataLoader
 from biLSTM import BiLSTM_CRF
-from Datas import ConllDataset, WordVocab, TagVocab, collate_conll
+from ConllData import ConllDataset, WordVocab, TagVocab, collate_conll
 from pytorchtools import EarlyStopping
 from Utils import logger, label_sentence_entity
 
@@ -31,7 +31,7 @@ class Trainer():
         self.use_char = use_char
         self.use_cnn = use_cnn
         self.use_crf = use_crf
-        self.use_lm = True
+        self.use_lm = use_lm
         self.lr = 0.0001
         self.momentum = 0.9
         self.decay_rate = 0.05
@@ -211,6 +211,7 @@ if __name__ == '__main__':
     #pretrained_path = '/home/gene/Documents/Data/Glove/glove.42B.300d.txt'
 
     trainer = Trainer(data_path, pretrained_path, epochs = 100, 
-                use_pretrained = True, use_char = True, use_lm = True, use_crf = True)
+                use_pretrained = True, use_char = True, use_lm = True, use_crf = True, 
+                attention_pooling = True)
     trainer.train()
     #trainer.load_model('model/model_12110226')

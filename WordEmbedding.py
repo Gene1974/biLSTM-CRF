@@ -1,17 +1,19 @@
 import torch
 import torch.nn as nn
+from CharEmbedding import CharEmbedding
 
 class WordEmbedding(nn.Module):
-    def __init__(self, word_vocab, use_pretrained):
+    def __init__(self, word_vocab, use_pretrained = True, word_emb_dim = 100):
         super().__init__()
         self.word_vocab = word_vocab
-        self.word_emb_size = word_vocab.word_emb.shape[1]
         self.n_words = len(word_vocab.word_to_ix)
         if use_pretrained:
+            self.word_emb_dim = word_vocab.word_emb.shape[1]
             self.word_emb = word_vocab.word_emb
             self.word_embeds = nn.Embedding.from_pretrained(self.word_emb)
         else:
-            self.word_embeds = nn.Embedding(self.n_words, self.word_emb_size)
+            self.word_emb_dim = word_emb_dim
+            self.word_embeds = CharEmbedding(self.n_words, self.word_emb_dim)
 
     def forward(self, word_ids):
         '''
