@@ -7,7 +7,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from biLSTM import BiLSTM_CRF
-from CCKSData import CCKSDataset, WordVocab, TagVocab
+from CCKSData import CCKSDataset, CCKSVocab, TagVocab
 from pytorchtools import EarlyStopping
 from Utils import logger, label_sentence_entity
 
@@ -30,7 +30,8 @@ class Trainer():
         self.dropout = 0.1
         self.epochs = epochs
         self.batch_size = 8
-        
+
+        self.use_word = use_word
         self.use_char = use_char
         self.use_cnn = use_cnn
         self.use_crf = use_crf
@@ -43,9 +44,10 @@ class Trainer():
         self.gradient_clip = 5.0
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         logger('device = {}'.format(self.device))
-        logger('use_pretrained = {}, use_char = {}, use_lm = {}, use_crf = {}, use_cnn = {}, atten_pool = {}'.format(use_pretrained, use_char, use_lm, use_crf, use_cnn, attention_pooling))
+        logger('use_word = {}, use_char = {}, use_lm = {}, use_crf = {}, use_cnn = {}, atten_pool = {}'.format(use_word, use_char, use_lm, use_crf, use_cnn, attention_pooling))
+        logger('use_pretrained_word = {}, use_pretrained_char = {}'.format(use_pretrained_word, use_pretrained_char))
         logger('dataset_path = {}'.format(data_path))
-        logger('pretrained_path = {}'.format(pretrained_path))
+        #logger('pretrained_path = {}'.format(pretrained_path))
 
         self.load_ccks_data(data_path)
 
@@ -53,12 +55,13 @@ class Trainer():
             self.word_vocab, self.tag_vocab, 
             self.char_emb_dim, self.word_emb_dim, self.lm_emb_dim, self.emb_dim, self.hidden_dim, self.lstm_layers, 
             self.batch_size, self.device, self.dropout, 
-            use_pretrained = use_pretrained, use_word = use_word, use_char = use_char, use_crf = use_crf, use_cnn = use_cnn,
+            use_word = use_word, use_char = use_char, use_lm = use_lm, use_crf = use_crf, use_cnn = use_cnn,
+            use_pretrained_word = use_pretrained_word, use_pretrained_char = use_pretrained_char, 
             attention_pooling = attention_pooling
         ).to(self.device)
 
     def load_ccks_data(self, data_path):
-        self.word_vocab = WordVocab(data_path)
+        self.word_vocab = CCKSVocab(data_path)
         self.tag_vocab = self.word_vocab.tag_vocab
         #self.tag_vocab = TagVocab()
         self.train_set = CCKSDataset(data_path, self.word_vocab, self.tag_vocab, mod = 'train')
@@ -66,10 +69,6 @@ class Trainer():
         self.valid_set = self.train_set.valid_set
         logger('Load data. Train data: {}, Valid data: {}, Test data: {}'.format(len(self.train_set), len(self.valid_set), len(self.test_set)))
 
-        # self.train_loader = DataLoader(self.train_set, batch_size = self.batch_size, shuffle = False, collate_fn = collate_conll)
-        # for i, batch in enumerate(self.train_loader):
-        #     print(batch)
-        #     batch(batch)
 
     def train(self):
         model = self.model
@@ -91,18 +90,18 @@ class Trainer():
                 else:
                     batch = self.train_set[i:]
                 i += self.batch_size
-                text, word_ids, tag_ids, word_mask = batch
+                text, char_ids, char_mask, tag_ids = batch
 
                 sen_len = max([len(sentence) for sentence in text])
-                word_ids = word_ids[:, : sen_len].to(self.device)
+                char_ids = char_ids[:, : sen_len].to(self.device)
                 tag_ids = tag_ids[:, : sen_len].to(self.device)
-                word_mask = word_mask[:, : sen_len].to(self.device)
+                char_mask = char_mask[:, : sen_len].to(self.device)
                 
                 optimizer.zero_grad()
                 if self.use_crf:
-                    loss = model(text, word_ids, word_mask, None, tag_ids) # (batch_size, sen_len, tagset_size)
+                    loss = model(text, None, None, char_ids, char_mask, tag_ids) # (batch_size, sen_len, tagset_size)
                 else:
-                    output = model(text, word_ids, word_mask, None) # (batch_size, sen_len, tagset_size)
+                    output = model(text, None, None, char_ids, char_mask) # (batch_size, sen_len, tagset_size)
                     output = output.permute(0, 2, 1) # (batch_size, tagset_size, sen_len)
                     loss = entrophy(output, tag_ids)
                 train_losses.append(loss.item())
@@ -118,16 +117,17 @@ class Trainer():
                     else:
                         batch = self.valid_set[i:]
                     i += self.batch_size
-                    text, word_ids, tag_ids, word_mask = batch
-                    sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
-                    word_ids = word_ids[:, : sen_len].to(self.device)
+                    text, char_ids, char_mask, tag_ids = batch
+
+                    sen_len = max([len(sentence) for sentence in text])
+                    char_ids = char_ids[:, : sen_len].to(self.device)
                     tag_ids = tag_ids[:, : sen_len].to(self.device)
-                    word_mask = word_mask[:, : sen_len].to(self.device)
+                    char_mask = char_mask[:, : sen_len].to(self.device)
 
                     if self.use_crf:
-                        loss = model(text, word_ids, word_mask, None, tag_ids) # (batch_size, sen_len, tagset_size)
+                        loss = model(text, None, None, char_ids, char_mask, tag_ids) # (batch_size, sen_len, tagset_size)
                     else:
-                        output = model(text, word_ids, word_mask, None) # (batch_size, sen_len, tagset_size)
+                        output = model(text, None, None, char_ids, char_mask) # (batch_size, sen_len, tagset_size)
                         output = output.permute(0, 2, 1) # (batch_size, tagset_size, sen_len)
                         loss = entrophy(output, tag_ids)
                     valid_losses.append(loss.item())
@@ -169,31 +169,41 @@ class Trainer():
                 else:
                     batch = self.test_set[i:]
                 i += self.batch_size
-                text, word_ids, tag_ids, word_mask = batch
-                sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
-                word_ids = word_ids[:, : sen_len].to(self.device)
+                text, char_ids, char_mask, tag_ids = batch
+
+                sen_len = max([len(sentence) for sentence in text])
+                char_ids = char_ids[:, : sen_len].to(self.device)
                 tag_ids = tag_ids[:, : sen_len].to(self.device)
-                word_mask = word_mask[:, : sen_len].to(self.device)
+                char_mask = char_mask[:, : sen_len].to(self.device)
                 
                 if self.use_crf:
-                    predict = model(text, word_ids, word_mask, None) # (batch_size, sen_len)
+                    predict = model(text, None, None, char_ids, char_mask) # (batch_size, sen_len)
                 else:
-                    output = model(text, word_ids, word_mask, None) # (batch_size, sen_len, tagset_size)
+                    output = model(text, None, None, char_ids, char_mask) # (batch_size, sen_len, tagset_size)
                     predict = torch.max(output, dim = 2).indices # (batch_size, sen_len)
-                correct += torch.sum(predict[word_mask] == tag_ids[word_mask]).item()
-                total += torch.sum(word_mask).item()
+                correct += torch.sum(predict[char_mask] == tag_ids[char_mask]).item()
+                total += torch.sum(char_mask).item()
                 
                 for j in range(tag_ids.shape[0]):
-                    gold_entity = label_sentence_entity(tag_ids[j].tolist(), self.tag_vocab.ix_to_tag)
-                    pred_entity = label_sentence_entity(predict[j], self.tag_vocab.ix_to_tag)
+                    gold_entity = label_sentence_entity(text[j], tag_ids[j].tolist(), self.tag_vocab.ix_to_tag)
+                    pred_entity = label_sentence_entity(text[j], predict[j], self.tag_vocab.ix_to_tag)
                     gold_num += len(gold_entity)
                     predict_num += len(pred_entity)
+                    #print(''.join(text[j]))
                     for entity in gold_entity:
                         if entity in pred_entity:
                             correct_num += 1
-                    # print(gold_entity)
-                    # print(pred_entity)
-                    # return
+                            print(entity)
+                            print()
+                    
+                    # for entity in gold_entity:
+                    #     if entity not in pred_entity:
+                    #         print(entity)
+                    # print()
+                    # for entity in pred_entity:
+                    #     if entity not in gold_entity:
+                    #         print(entity)
+                    # print()
             precision = correct_num / (predict_num + 0.000000001)
             recall = correct_num / (gold_num + 0.000000001)
             f1 = 2 * precision * recall / (precision + recall + 0.000000001)
@@ -201,7 +211,13 @@ class Trainer():
             logger('[Test] Precision: {:.8f} Recall: {:.8f} F1: {:.8f}'.format(precision, recall, f1))
 
     def load_model(self, path):
+        #print(self.model.word_vocab.char_to_ix)
+        #print()
         self.model.load_state_dict(torch.load(path))
+        #print('\n'.join(self.model.state_dict().keys()))
+        #print([tup[0] for tup in self.model.state_dict()])
+        #print(self.model.word_vocab.char_to_ix)
+        #return
         self.test()
 
 if __name__ == '__main__':
@@ -211,8 +227,8 @@ if __name__ == '__main__':
     data_path = '/home/gene/Documents/Data/CCKS2019/'
 
     trainer = Trainer(data_path, pretrained_path, epochs = 100, 
-        use_word = True, use_char = False, use_lm = False, use_crf = True, 
+        use_word = False, use_char = True, use_lm = True, use_crf = True, 
         use_pretrained_word = False, use_pretrained_char = False, 
-        attention_pooling = True)
-    trainer.train()
-    #trainer.load_model('model/model_12110226')
+        attention_pooling = False)
+    #trainer.train()
+    trainer.load_model('model/model_12221652')

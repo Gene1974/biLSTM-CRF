@@ -6,23 +6,24 @@ import torch
 from torch.utils.data import Dataset
 
 # load pretrains
-class WordVocab():
+class CCKSVocab():
     def __init__(self, dataset_path = None):
         self.OOV_TAG = '<OOV>'
         self.PAD_TAG = '<PAD>'
         if dataset_path is None:
             dataset_path = '/home/gene/Documents/Data/CCKS2019/'
         self.type_list = set()
+        self.char_list = set() # 1980
         self.load_dataset(dataset_path)
         self.tag_vocab = TagVocab(self.type_list)
 
     def load_dataset(self, path):
-        self.word_list = [self.PAD_TAG, self.OOV_TAG]
-        self.word_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
-        self.char_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
         self.load_ccks_word(path + 'subtask1_train/subtask1_training_part1.txt')
         self.load_ccks_word(path + 'subtask1_train/subtask1_training_part2.txt')
         self.load_ccks_word(path + 'subtask1_test/subtask1_test_set_with_answer.json')
+        self.char_list = [self.PAD_TAG, self.OOV_TAG] + list(self.char_list)
+        self.char_to_ix = {self.char_list[index]: index for index in range(len(self.char_list))}
+        self.type_list = list(self.type_list)
 
     def load_ccks_word(self, path):
         f = open(path, 'r', encoding = 'utf-8-sig')
@@ -30,13 +31,15 @@ class WordVocab():
             line = line.strip()
             if line:
                 data = json.loads(line)
-                text = data['originalText']
+                self.char_list |= set(data['originalText'])
                 self.type_list |= set([entity['label_type'] for entity in data['entities']])
-                for word in text:
-                    if word not in self.word_to_ix:
-                        self.word_to_ix[word] = len(self.word_to_ix)
-                        self.word_list.append(word)
         f.close()
+    
+    def map_char(self, words, dim = 3):
+        if dim == 3: # words
+            return [[self.char_to_ix[char] if char in self.char_to_ix else self.char_to_ix[self.OOV_TAG] for char in word] for word in words]
+        if dim == 2: # word
+            return [self.char_to_ix[char] if char in self.char_to_ix else self.char_to_ix[self.OOV_TAG] for char in words]
     
     def map_word(self, words, dim = 2):
         if dim == 2: # words
@@ -88,22 +91,22 @@ class CCKSDataset(Dataset):
         self.originalText = []
         self.entities = []
         self.text = []
-        self.word_ids = []
-        self.word_masks = []
+        self.char_ids = []
+        self.char_masks = []
         self.tag_ids = []
 
         if mod == 'train':
             self.load_ccks(path + 'subtask1_train/subtask1_training_part1.txt')
             self.load_ccks(path + 'subtask1_train/subtask1_training_part2.txt')
-            self.word_ids = torch.tensor(self.word_ids, dtype = torch.long)
+            self.char_ids = torch.tensor(self.char_ids, dtype = torch.long)
+            self.char_masks = torch.tensor(self.char_masks, dtype = torch.bool)
             self.tag_ids = torch.tensor(self.tag_ids, dtype = torch.long)
-            self.word_masks = torch.tensor(self.word_masks, dtype = torch.bool)
             self.split_data(ratio = ratio, shuffle = shuffle)
         elif mod == 'test':
             self.load_ccks(path + 'subtask1_test/subtask1_test_set_with_answer.json')
-            self.word_ids = torch.tensor(self.word_ids, dtype = torch.long)
+            self.char_ids = torch.tensor(self.char_ids, dtype = torch.long)
+            self.char_masks = torch.tensor(self.char_masks, dtype = torch.bool)
             self.tag_ids = torch.tensor(self.tag_ids, dtype = torch.long)
-            self.word_masks = torch.tensor(self.word_masks, dtype = torch.bool)
 
     def load_ccks(self, path):
         length = self.max_sen_len
@@ -116,8 +119,6 @@ class CCKSDataset(Dataset):
             text = data['originalText']
             entity = data['entities']
             
-            # sub_sentence = []
-            # sub_entities = []
             begin_index = 0 # index of text
             item_index = 0  # index of entity
             '''
@@ -141,8 +142,6 @@ class CCKSDataset(Dataset):
                         item['end_pos'] = item['end_pos'] - begin_index
                         sub_entity.append(item)
                         item_index += 1
-                    # sub_sentence.append(text[begin_index: end_index])
-                    # sub_entities.append(sub_entity)
                     self.label_data(text[begin_index: end_index], sub_entity)
                     sub_entity = []
                     sen = sen[pos + 1:]
@@ -159,14 +158,10 @@ class CCKSDataset(Dataset):
                     item['end_pos'] = item['end_pos'] - begin_index
                     sub_entity.append(item)
                     item_index += 1
-                # sub_sentence.append(text[begin_index: end_index])
-                # sub_entities.append(sub_entity)
                 self.label_data(text[begin_index: end_index], sub_entity)
                 sub_entity = []
                 begin_index = end_index
                 end_index = begin_index + len(sen) + 1
-            # for i in range(len(sub_sentence)):
-            #     self.label_data(sub_sentence[i], sub_entities[i])
     
     def label_data(self, text, entities):
         '''
@@ -196,16 +191,16 @@ class CCKSDataset(Dataset):
             text: list(char)
             tags: list(char)
         '''
-        word_ids = self.word_vocab.map_word(text, dim = 2)
+        char_ids = self.word_vocab.map_char(text, dim = 2)
         tag_ids = self.tag_vocab.map_tag(tags)
         
-        word_ids, word_mask = self.padding_fixed(word_ids, padding_value = 0, dim = 2)
+        char_ids, char_masks = self.padding_fixed(char_ids, padding_value = 0, dim = 2)
         tag_ids, _ = self.padding_fixed(tag_ids, padding_value = 0, dim = 2)
 
         self.text.append(text) # Elmo 不用 cut 多余的 char
-        self.word_ids.append(word_ids)
+        self.char_ids.append(char_ids)
+        self.char_masks.append(char_masks)
         self.tag_ids.append(tag_ids)
-        self.word_masks.append(word_mask)
     
     def padding_fixed(self, sentence, padding_value = 0, dim = 2):
         '''
@@ -222,33 +217,33 @@ class CCKSDataset(Dataset):
 
     # split data into trainset and testset
     def split_data(self, ratio = 0.8, shuffle = False):
-        self.total_num = len(self.word_ids)
+        self.total_num = len(self.char_ids)
         if shuffle:
             index = list(range(self.total_num))
             random.shuffle(index)
             self.text = self.text[index]
-            self.word_ids = self.word_ids[index]
+            self.char_ids = self.char_ids[index]
+            self.char_masks = self.char_masks[index]
             self.tag_ids = self.tag_ids[index]
-            self.word_masks = self.word_masks[index]
         if self.mod == 'train':
             self.train_num = int(ratio * self.total_num)
             self.valid_num = self.total_num - self.train_num
 
             self.valid_set = CCKSDataset(mod = 'valid')
             self.valid_set.text = self.text[self.train_num:]
-            self.valid_set.word_ids = self.word_ids[self.train_num:]
+            self.valid_set.char_ids = self.char_ids[self.train_num:]
+            self.valid_set.char_masks = self.char_masks[self.train_num:]
             self.valid_set.tag_ids = self.tag_ids[self.train_num:]
-            self.valid_set.word_masks = self.word_masks[self.train_num:]
             self.text = self.text[: self.train_num]
-            self.word_ids = self.word_ids[: self.train_num]
+            self.char_ids = self.char_ids[: self.train_num]
+            self.char_masks = self.char_masks[: self.train_num]
             self.tag_ids = self.tag_ids[: self.train_num]
-            self.word_masks = self.word_masks[: self.train_num]
     
     def __len__(self):
         return len(self.text) # number of sentence
 
     def __getitem__(self, index):
-        return self.text[index], self.word_ids[index], self.tag_ids[index], self.word_masks[index]
+        return self.text[index], self.char_ids[index], self.char_masks[index], self.tag_ids[index]
 
 
 # def collate_conll(batch_data):

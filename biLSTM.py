@@ -7,14 +7,14 @@ from crf import CRF
 from CharEmbedding import CharEmbedding
 from WordEmbedding import WordEmbedding
 from LMEmbedding import LMEmbedding
-from AttentionPooling import AttentionPooling
 from Utils import *
 
 class BiLSTM_CRF(nn.Module):
     def __init__(self, word_vocab, tag_vocab, 
             char_emb_dim, word_emb_dim, lm_emb_dim, emb_dim, hidden_dim, num_layers, 
             batch_size, device, dropout = 0.5, 
-            use_pretrained = True, use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True, 
+            use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
+            use_pretrained_word = True, use_pretrained_char = True, 
             attention_pooling = False):
         super(BiLSTM_CRF, self).__init__()
         self.word_vocab = word_vocab
@@ -27,7 +27,8 @@ class BiLSTM_CRF(nn.Module):
         
         self.batch_size = batch_size
         self.device = device
-        self.use_pretrained = use_pretrained
+        self.use_pretrained_word = use_pretrained_word
+        self.use_pretrained_char = use_pretrained_char
         self.use_word = use_word
         self.use_char = use_char
         self.use_cnn = use_cnn
@@ -35,33 +36,30 @@ class BiLSTM_CRF(nn.Module):
         self.use_lm = use_lm
         self.attention_pooling = attention_pooling
         
-        self.word_emb_dim = word_emb_dim
-        self.char_emb_dim = char_emb_dim
+        # self.word_emb_dim = word_emb_dim
+        # self.char_emb_dim = char_emb_dim
         self.lm_emb_dim = lm_emb_dim
         self.emb_dim = emb_dim # lstm input dim
         self.raw_emb_dim = 0 # emb_dim after concat
         if use_word:
-            if use_pretrained:
+            if use_pretrained_word:
                 self.word_emb_dim = word_vocab.word_emb.shape[1]
-                # self.pretrained_dim = word_vocab.word_emb.shape[1]
-                # self.word_dense = nn.Linear(self.pretrained_dim, self.word_emb_dim)
             else:
                 self.word_emb_dim = char_emb_dim
-            self.word_embeds = WordEmbedding(word_vocab, use_pretrained, self.word_emb_dim)
+            self.word_embeds = WordEmbedding(word_vocab, self.word_emb_dim, use_pretrained_word, use_pretrained_char)
             self.raw_emb_dim += self.word_emb_dim
         if use_char:
-            self.char_embeds = CharEmbedding(self.charset_size, char_emb_dim, use_cnn, attention_pooling)
-            self.raw_emb_dim += char_emb_dim 
+            self.char_embeds = CharEmbedding(word_vocab.char_to_ix, char_emb_dim, use_pretrained_char, use_cnn, attention_pooling, dropout = 0.5)
+            self.char_emb_dim = self.char_embeds.get_emb_dim()
+            self.raw_emb_dim += self.char_emb_dim 
         
         if use_lm:
-            self.lm_embeds = LMEmbedding()
-            self.pretrained_lm_dim = self.lm_embeds.get_emb_dim()
-            self.lm_dense = nn.Linear(self.pretrained_lm_dim, self.lm_emb_dim)
+            self.lm_embeds = LMEmbedding(lm_emb_dim)
             self.raw_emb_dim += self.lm_emb_dim
-        if attention_pooling:
-            self.atten_pool = AttentionPooling()
+            
+        #self.embed_dense = nn.Linear(self.raw_emb_dim, self.emb_dim)
+        self.emb_dim = self.raw_emb_dim
         
-        self.embed_dense = nn.Linear(self.raw_emb_dim, self.emb_dim)
         self.dropout1 = nn.Dropout(p = dropout)
         self.dropout2 = nn.Dropout(p = dropout)
         self.lstm = nn.LSTM(self.emb_dim, hidden_dim // 2,
@@ -78,33 +76,47 @@ class BiLSTM_CRF(nn.Module):
             else:
                 nn.init.xavier_uniform_(param)
 
-    def forward(self, text, word_ids, word_mask, char_ids, label = None): # (batch_size, sen_len)
+    '''
+    input:
+        dim == 3: (English NER)
+            text:   list(list)
+            word_ids:   (batch_size, sen_len)
+            word_mask:  (batch_size, sen_len)
+            char_ids:   (batch_size, sen_len, max_word_len)
+            label:      (batch_size, sen_len)
+        dim == 2: (Chinese NER)
+            text:   list(list)
+            char_ids:   (batch_size, sen_len)
+            char_mask:  (batch_size, sen_len)
+    '''
+    def forward(self, text, word_ids, word_mask, char_ids, char_mask, label = None): # (batch_size, sen_len)
         embeds = None
         if self.use_word:
-            word_emb = self.word_embeds(word_ids) # (batch_size, sen_len, 100)
+            word_emb = self.word_embeds(word_ids) # (batch_size, sen_len, emb_size)
             embeds = word_emb
         
         if self.use_char:
-            char_emb = self.char_embeds(char_ids) # (batch_size, sen_len, max_sen_len, 30)
-            if self.attention_pooling:
-                char_emb = self.atten_pool(char_emb)
-            else: # max pooling
-                char_emb = torch.max(char_emb, dim = 2).values # (batch_size, max_sen_len, embed_size)
+            '''
+            char_emb: (batch_size, sen_len, emb_size)
+            '''
+            char_emb = self.char_embeds(char_ids) # (batch_size, sen_len, emb_size)
             if embeds is None:
                 embeds = char_emb
             else:
                 embeds = torch.cat((embeds, char_emb), dim = -1)
         
         if self.use_lm:
-            lm_embeds = self.lm_embeds(text) # (batch_size, sen_len, 1024)
-            lm_embeds = self.lm_dense(lm_embeds) # (batch_size, sen_len, 256)
+            lm_embeds = self.lm_embeds(text) # (batch_size, sen_len, 256)
             if embeds is None:
                 embeds = lm_embeds
             else:
                 embeds = torch.cat((embeds, lm_embeds), dim = -1)
+            #embeds = self.embed_dense(embeds) # (batch_size, sen_len, 256)
         
-        embeds = self.embed_dense(embeds) # (batch_size, sen_len, 256)
-        embeds = self.dropout1(embeds)
+        embeds = self.dropout1(embeds) # (batch_size, sen_len, 256)
+        if self.use_char and char_ids.dim() == 2: # no word embedding
+            word_mask = char_mask
+        
         sen_len = torch.sum(word_mask, dim = 1, dtype = torch.int64).to('cpu') # (batch_size)
         pack_seq = pack_padded_sequence(embeds, sen_len, batch_first = True, enforce_sorted = False)
         lstm_out, _ = self.lstm(pack_seq)
@@ -122,6 +134,6 @@ class BiLSTM_CRF(nn.Module):
             else:
                 lstm_feats = self.dropout2(lstm_feats)
                 log_likelihood = self.crf(lstm_feats, label, word_mask)
-                batch_size = word_ids.shape[0]
+                batch_size = label.shape[0]
                 loss = -log_likelihood / batch_size
                 return loss

@@ -2,18 +2,19 @@ import torch
 import torch.nn as nn
 
 class AttentionPooling(nn.Module):
-    def __init__(self, hidden_dim = 64) -> None:
+    def __init__(self, input_dim, output_dim, hidden_dim = 64) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.max_word_len = 16
+        #self.max_word_len = 16
+        self.output_dim = output_dim
         '''
         a = q^T tanh(V * c + v)
         alpha = softmax(a)
         '''
         self.attention = nn.Sequential(
-            nn.Linear(self.max_word_len, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, self.max_word_len, bias = False),
+            nn.Linear(hidden_dim, output_dim, bias = False),
             nn.Softmax(dim = 3)
         )
     

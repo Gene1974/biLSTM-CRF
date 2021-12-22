@@ -14,10 +14,11 @@ class ElmoTokenEmbedder(TokenEmbedder):
 batch_to_ids: torch: (len(batch), max sentence length, max word length)
 '''
 class LMEmbedding(nn.Module):
-    def __init__(self, num_output_representations = 1, requires_grad = False, dropout = 0.1):
+    def __init__(self, lm_emb_dim, num_output_representations = 1, requires_grad = False, dropout = 0.1):
         super().__init__()
         path = '/home/gene/Documents/Data/ELMo/'
         self.num_output_representations = num_output_representations
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.lm_embeds = Elmo(
             options_file = path + 'elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json', 
@@ -26,11 +27,12 @@ class LMEmbedding(nn.Module):
             requires_grad = requires_grad,
             dropout = dropout
         )
-        # self.embed_dim = self.lm_embeds.get_output_dim()
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.lm_emb_dim = lm_emb_dim
+        self.pretrained_dim = self.lm_embeds.get_output_dim()
+        self.lm_dense = nn.Linear(self.pretrained_dim, self.lm_emb_dim)
 
     def get_emb_dim(self):
-        return self.lm_embeds.get_output_dim()
+        return self.lm_emb_dim
 
     def forward(self, text):
         '''
@@ -43,9 +45,9 @@ class LMEmbedding(nn.Module):
         char_ids = batch_to_ids(text).to(self.device)
         lm_emb = self.lm_embeds(char_ids)['elmo_representations'] # List[torch.Tensor]
         if self.num_output_representations == 1:
-            return lm_emb[0]
-        else:
-            return lm_emb
+            lm_emb = lm_emb[0]
+        lm_emb = self.lm_dense(lm_emb)
+        return lm_emb
 
 '''
 reference:

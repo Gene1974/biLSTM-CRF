@@ -16,22 +16,29 @@ torch.manual_seed(1)
 os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 class Trainer():
-    def __init__(self, data_path, pretrained_path, epochs = 100, 
-        use_pretrained = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
+    def __init__(self, data_path, pretrained_path = None, epochs = 100, 
+        use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
+        use_pretrained_word = True, use_pretrained_char = True, 
         attention_pooling = False):
         super().__init__()
 
         self.char_emb_dim = 30
+        self.word_emb_dim = 100
+        self.lm_emb_dim = 256
+        self.emb_dim = 256
         self.hidden_dim = 256
         self.lstm_layers = 1
         self.dropout = 0.1
         self.epochs = epochs
         self.batch_size = 8
-        self.use_pretrained = use_pretrained
+
+        self.use_word = use_word
         self.use_char = use_char
         self.use_cnn = use_cnn
         self.use_crf = use_crf
         self.use_lm = use_lm
+        self.use_pretrained_word = use_pretrained_word
+        self.use_pretrained_char = use_pretrained_char
         self.lr = 0.0001
         self.momentum = 0.9
         self.decay_rate = 0.05
@@ -46,9 +53,10 @@ class Trainer():
 
         self.model = BiLSTM_CRF(
             self.word_vocab, self.tag_vocab, 
-            self.char_emb_dim, self.hidden_dim, self.lstm_layers, 
+            self.char_emb_dim, self.word_emb_dim, self.lm_emb_dim, self.emb_dim, self.hidden_dim, self.lstm_layers, 
             self.batch_size, self.device, self.dropout, 
-            use_pretrained = use_pretrained, use_char = use_char, use_crf = use_crf, use_cnn = use_cnn,
+            use_word = use_word, use_char = use_char, use_lm = use_lm, use_crf = use_crf, use_cnn = use_cnn,
+            use_pretrained_word = use_pretrained_word, use_pretrained_char = use_pretrained_char, 
             attention_pooling = attention_pooling
         ).to(self.device)
 
@@ -205,13 +213,14 @@ class Trainer():
 
 if __name__ == '__main__':
     #data_path = '/data/hyz/CoNLL2003/'
-    #data_path = './data_small/'
-    data_path = '/home/gene/Documents/Data/CoNLL2003/'
+    data_path = './data_small/'
+    #data_path = '/home/gene/Documents/Data/CoNLL2003/'
     pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
     #pretrained_path = '/home/gene/Documents/Data/Glove/glove.42B.300d.txt'
 
     trainer = Trainer(data_path, pretrained_path, epochs = 100, 
-                use_pretrained = True, use_char = True, use_lm = True, use_crf = True, 
-                attention_pooling = True)
+        use_word = True, use_char = True, use_lm = True, use_crf = True, 
+        use_pretrained_word = True, use_pretrained_char = False, 
+        attention_pooling = False)
     trainer.train()
     #trainer.load_model('model/model_12110226')
