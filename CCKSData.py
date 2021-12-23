@@ -4,6 +4,8 @@ import random
 from torch.utils import data
 import torch
 from torch.utils.data import Dataset
+from TagVocab import TagVocab
+from Utils import logger
 
 # load pretrains
 class CCKSVocab():
@@ -47,31 +49,6 @@ class CCKSVocab():
         if dim == 1:
             return self.word_to_ix[words] if words in self.word_to_ix else self.word_to_ix[self.OOV_TAG]
 
-# map BIOES tags
-class TagVocab():
-    def __init__(self, type_list = None):
-        self.START_TAG = 'START'
-        self.STOP_TAG = 'STOP'
-        self.PAD_TAG = '<PAD>'
-
-        pos_list = ['B', 'I', 'E', 'S']
-        if type_list == None:
-            type_list = ['疾病和诊断', '检查', '检验', '手术', '药物', '解剖部位']
-        tag_list = []
-        for pos in pos_list:
-            tag_list = tag_list + [pos + '-' + types for types in type_list]
-        tag_list.append('O')
-        self.tag_to_ix = {tag_list[i]: i + 1 for i in range(len(tag_list))}
-        self.tag_to_ix[self.PAD_TAG] = 0
-        self.tag_to_ix[self.START_TAG] = len(self.tag_to_ix)
-        self.tag_to_ix[self.STOP_TAG] = len(self.tag_to_ix)
-        self.ix_to_tag = {value: key for key, value in self.tag_to_ix.items()}
-
-    def map_tag(self, tags, dim = 2):
-        if dim == 2:
-            return [self.tag_to_ix[tag] for tag in tags]
-        if dim == 1:
-            return self.tag_to_ix[tags]
 
 class CCKSDataset(Dataset):
     def __init__(self, path = None, word_vocab = None, tag_vocab = None, mod = 'train', ratio = 0.8, shuffle = False):
@@ -246,23 +223,19 @@ class CCKSDataset(Dataset):
         return self.text[index], self.char_ids[index], self.char_masks[index], self.tag_ids[index]
 
 
-# def collate_conll(batch_data):
-#     '''
-#     input:
-#         batch_data: [dataset[i] for i in indices], (batch_size, sen_len)
-#     output:
-#         word_ids: tensor: (batch_size, sen_len)
-#         tag_ids: tensor: (batch_size, sen_len)
-#     '''
-#     text, word_ids, tag_ids, word_mask = batch_data
-#     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#     sen_len = torch.max(torch.sum(word_mask, dim = 1, dtype = torch.int64)).item()
-#     print(sen_len, word_ids.shape, tag_ids.shape)
+class CCKSLoader():
+    def __init__(self) -> None:
+        pass
 
-#     word_ids = word_ids[:, : sen_len].to(device)
-#     tag_ids = tag_ids[:, : sen_len].to(device)
-#     word_mask = word_mask[:, : sen_len].to(device)
-#     return text, word_ids, tag_ids, word_mask
+    def load_ccks_data(self, data_path, mod = 'train'):
+        self.vocab = CCKSVocab(data_path)
+        self.tag_vocab = self.vocab.tag_vocab
+        self.train_set = CCKSDataset(data_path, self.vocab, self.tag_vocab, mod = 'train')
+        self.test_set = CCKSDataset(data_path, self.vocab, self.tag_vocab, mod = 'test')
+        self.valid_set = self.train_set.valid_set
+        logger('Load data. Train data: {}, Valid data: {}, Test data: {}'.format(len(self.train_set), len(self.valid_set), len(self.test_set)))
+
+
 
 if __name__ == '__main__':
     # path = '/home/gene/Documents/Data/CCKS2019/'

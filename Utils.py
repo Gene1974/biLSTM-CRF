@@ -90,6 +90,41 @@ def label_batch_entity(tags, tag_list, scheme="BIOES"):
     for i in tags.shape[0]:
         entity += label_sentence_entity(tags[i], tag_list, scheme)
 
+def label_chinese_entity(text, tags, tag_list):
+    # [start, end)
+    if type(tags) == torch.Tensor:
+        tags = tags.tolist()
+    tags = [tag_list[tag] for tag in tags]
+    entity = []
+    count = len(tags)
+    i = 0
+    while i < count:
+        if tags[i].startswith("B-"):
+            j = i + 1
+            while j < count:
+                if tags[j].startswith("E-"):
+                    break
+                else:
+                    j += 1
+            entity.append({
+                "text": ''.join(text[i: j + 1]),
+                "start_index": i,
+                "end_index": j + 1,
+                "label": tags[i][2:]
+            })
+            i = j + 1
+        elif tags[i].startswith("S-"):
+            entity.append({
+                "text": text[i],
+                "start_index": i,
+                "end_index": i + 1,
+                "label": tags[i][2:]
+            })
+            i += 1
+        else:
+            i += 1
+    return entity
+
 def label_sentence_entity(text, tags, tag_list):
     if type(tags) == torch.Tensor:
         tags = tags.tolist()

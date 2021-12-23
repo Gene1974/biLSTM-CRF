@@ -66,7 +66,8 @@ class BiLSTM_CRF(nn.Module):
                             num_layers = num_layers, bidirectional=True)
         self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
         if use_crf:
-            self.crf = CRF(self.tag_vocab.ix_to_tag)
+            tag_dict = {value: key for key, value in self.tag_vocab.tag_to_ix.items()}
+            self.crf = CRF(tag_dict)
         
     def _init_weight(self):
         for name, param in self.lstm.named_parameters():

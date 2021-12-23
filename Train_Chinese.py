@@ -1,24 +1,28 @@
+import json
 import numpy as np
 import os
+import pickle
 import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 
 from biLSTM import BiLSTM_CRF
-from CCKSData import CCKSDataset, CCKSVocab, TagVocab
+from CCKSData import CCKSDataset, CCKSVocab
+from TagVocab import TagVocab
 from pytorchtools import EarlyStopping
-from Utils import logger, label_sentence_entity
+from Utils import logger, label_chinese_entity
 
 torch.manual_seed(1)
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 class Trainer():
-    def __init__(self, data_path, pretrained_path = None, epochs = 100, 
+    def __init__(self, 
+        mod = 'train', model_time = None, data_path = None, pretrained_path = None, epochs = 100, 
         use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
         use_pretrained_word = True, use_pretrained_char = True, 
-        attention_pooling = False):
+        attention_pooling = False
+        ):
         super().__init__()
 
         self.char_emb_dim = 256
@@ -49,10 +53,23 @@ class Trainer():
         logger('dataset_path = {}'.format(data_path))
         #logger('pretrained_path = {}'.format(pretrained_path))
 
-        self.load_ccks_data(data_path)
+        if mod == 'train':
+            self.vocab = CCKSVocab(data_path)
+            self.tag_vocab = self.vocab.tag_vocab
+            self.train_set = CCKSDataset(data_path, self.vocab, self.tag_vocab, mod = 'train')
+            self.valid_set = self.train_set.valid_set
+            self.test_set = CCKSDataset(data_path, self.vocab, self.tag_vocab, mod = 'test')
+            logger('Load data. Train data: {}, Valid data: {}, Test data: {}'.format(len(self.train_set), len(self.valid_set), len(self.test_set)))
+        else:
+            model_path = './results/{}'.format(model_time)
+            with open(model_path + '/vocab_' + model_time, 'rb') as f:
+                self.vocab = pickle.load(f)
+                self.tag_vocab = self.vocab.tag_vocab
+            self.test_set = CCKSDataset(data_path, self.vocab, self.tag_vocab, mod = 'test')
+            logger('Load data. Test data: {}'.format(len(self.test_set)))
 
         self.model = BiLSTM_CRF(
-            self.word_vocab, self.tag_vocab, 
+            self.vocab, self.tag_vocab, 
             self.char_emb_dim, self.word_emb_dim, self.lm_emb_dim, self.emb_dim, self.hidden_dim, self.lstm_layers, 
             self.batch_size, self.device, self.dropout, 
             use_word = use_word, use_char = use_char, use_lm = use_lm, use_crf = use_crf, use_cnn = use_cnn,
@@ -60,15 +77,11 @@ class Trainer():
             attention_pooling = attention_pooling
         ).to(self.device)
 
-    def load_ccks_data(self, data_path):
-        self.word_vocab = CCKSVocab(data_path)
-        self.tag_vocab = self.word_vocab.tag_vocab
-        #self.tag_vocab = TagVocab()
-        self.train_set = CCKSDataset(data_path, self.word_vocab, self.tag_vocab, mod = 'train')
-        self.test_set = CCKSDataset(data_path, self.word_vocab, self.tag_vocab, mod = 'test')
-        self.valid_set = self.train_set.valid_set
-        logger('Load data. Train data: {}, Valid data: {}, Test data: {}'.format(len(self.train_set), len(self.valid_set), len(self.test_set)))
-
+        if mod == 'train':
+            self.train()
+        else:
+            self.model.load_state_dict(torch.load(model_path + '/model_' + model_time))
+            self.test()
 
     def train(self):
         model = self.model
@@ -141,15 +154,14 @@ class Trainer():
                     logger("Early stopping")
                     break
 
-        model_time = '{}'.format(time.strftime('%m%d%H%M', time.localtime()))
-        torch.save(model.state_dict(), './model/model_{}'.format(model_time))
         self.model = model
-        plt.xlabel('epoch')
-        plt.ylabel('loss')
-        plt.plot(avg_train_losses)
-        plt.plot(avg_valid_losses)
-        plt.legend(['train_loss', 'valid_loss'])
-        plt.savefig('./loss/loss_{}.png'.format(model_time), format = 'png')
+        model_time = '{}'.format(time.strftime('%m%d%H%M', time.localtime()))
+        model_path = './results/{}'.format(model_time)
+        os.mkdir(model_path)
+        torch.save(model.state_dict(), model_path + '/model_' + model_time)
+        with open(model_path + '/vocab_' + model_time, 'wb') as f:
+            pickle.dump(self.vocab, f)
+
         logger('Save result {}'.format(model_time))
 
         self.test()
@@ -185,50 +197,43 @@ class Trainer():
                 total += torch.sum(char_mask).item()
                 
                 for j in range(tag_ids.shape[0]):
-                    gold_entity = label_sentence_entity(text[j], tag_ids[j].tolist(), self.tag_vocab.ix_to_tag)
-                    pred_entity = label_sentence_entity(text[j], predict[j], self.tag_vocab.ix_to_tag)
+                    gold_entity = label_chinese_entity(text[j], tag_ids[j].tolist(), self.tag_vocab.ix_to_tag)
+                    pred_entity = label_chinese_entity(text[j], predict[j], self.tag_vocab.ix_to_tag)
                     gold_num += len(gold_entity)
                     predict_num += len(pred_entity)
-                    #print(''.join(text[j]))
+                    print(''.join(text[j]))
+                    print('correct:')
                     for entity in gold_entity:
                         if entity in pred_entity:
                             correct_num += 1
                             print(entity)
-                            print()
                     
-                    # for entity in gold_entity:
-                    #     if entity not in pred_entity:
-                    #         print(entity)
-                    # print()
-                    # for entity in pred_entity:
-                    #     if entity not in gold_entity:
-                    #         print(entity)
-                    # print()
+                    print('gold:')
+                    for entity in gold_entity:
+                        if entity not in pred_entity:
+                            print(entity)
+                    print('pred:')
+                    for entity in pred_entity:
+                        if entity not in gold_entity:
+                            print(entity)
+                    print()
             precision = correct_num / (predict_num + 0.000000001)
             recall = correct_num / (gold_num + 0.000000001)
             f1 = 2 * precision * recall / (precision + recall + 0.000000001)
             logger('[Test] Tagging accuracy: {:.8f}'.format(correct / total))
             logger('[Test] Precision: {:.8f} Recall: {:.8f} F1: {:.8f}'.format(precision, recall, f1))
 
-    def load_model(self, path):
-        #print(self.model.word_vocab.char_to_ix)
-        #print()
-        self.model.load_state_dict(torch.load(path))
-        #print('\n'.join(self.model.state_dict().keys()))
-        #print([tup[0] for tup in self.model.state_dict()])
-        #print(self.model.word_vocab.char_to_ix)
-        #return
-        self.test()
 
 if __name__ == '__main__':
     pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
     #pretrained_path = '/home/gene/Documents/Data/Glove/glove.42B.300d.txt'
-    #data_path = './data_small/'
+    data_path = './data_small/'
     data_path = '/home/gene/Documents/Data/CCKS2019/'
 
-    trainer = Trainer(data_path, pretrained_path, epochs = 100, 
+    trainer = Trainer('test', '12230545',
+        data_path, pretrained_path, epochs = 100, 
         use_word = False, use_char = True, use_lm = True, use_crf = True, 
         use_pretrained_word = False, use_pretrained_char = False, 
         attention_pooling = False)
     #trainer.train()
-    trainer.load_model('model/model_12221652')
+    #trainer.test()
