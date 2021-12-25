@@ -19,7 +19,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 class Trainer():
     def __init__(self, 
         mod = 'train', model_time = None, data_path = None, pretrained_path = None, epochs = 100, 
-        use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
+        use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True, use_lexicon = True, 
         use_pretrained_word = True, use_pretrained_char = True, 
         attention_pooling = False
         ):
@@ -28,6 +28,7 @@ class Trainer():
         self.char_emb_dim = 256
         self.word_emb_dim = 256
         self.lm_emb_dim = 256
+        self.lexicon_emb_dim = 256
         self.emb_dim = 256
         self.hidden_dim = 256
         self.lstm_layers = 1
@@ -40,6 +41,7 @@ class Trainer():
         self.use_cnn = use_cnn
         self.use_crf = use_crf
         self.use_lm = use_lm
+        self.use_lexicon = use_lexicon
         self.use_pretrained_word = use_pretrained_word
         self.use_pretrained_char = use_pretrained_char
         self.lr = 0.0001
@@ -48,7 +50,7 @@ class Trainer():
         self.gradient_clip = 5.0
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         logger('device = {}'.format(self.device))
-        logger('use_word = {}, use_char = {}, use_lm = {}, use_crf = {}, use_cnn = {}, atten_pool = {}'.format(use_word, use_char, use_lm, use_crf, use_cnn, attention_pooling))
+        logger('use_word = {}, use_char = {}, use_lm = {}, use_crf = {}, use_cnn = {}, use_lexicon = {}, atten_pool = {}'.format(use_word, use_char, use_lm, use_crf, use_cnn, use_lexicon, attention_pooling))
         logger('use_pretrained_word = {}, use_pretrained_char = {}'.format(use_pretrained_word, use_pretrained_char))
         logger('dataset_path = {}'.format(data_path))
         #logger('pretrained_path = {}'.format(pretrained_path))
@@ -70,9 +72,9 @@ class Trainer():
 
         self.model = BiLSTM_CRF(
             self.vocab, self.tag_vocab, 
-            self.char_emb_dim, self.word_emb_dim, self.lm_emb_dim, self.emb_dim, self.hidden_dim, self.lstm_layers, 
+            self.char_emb_dim, self.word_emb_dim, self.lm_emb_dim, self.lexicon_emb_dim, self.emb_dim, self.hidden_dim, self.lstm_layers, 
             self.batch_size, self.device, self.dropout, 
-            use_word = use_word, use_char = use_char, use_lm = use_lm, use_crf = use_crf, use_cnn = use_cnn,
+            use_word = use_word, use_char = use_char, use_lm = use_lm, use_crf = use_crf, use_cnn = use_cnn, use_lexicon = use_lexicon,
             use_pretrained_word = use_pretrained_word, use_pretrained_char = use_pretrained_char, 
             attention_pooling = attention_pooling
         ).to(self.device)
@@ -241,7 +243,7 @@ class Trainer():
                         if e not in correct_entity and e not in relax_correct_entity_pred:
                             print(e)
                     print()
-                    
+
             precision = correct_num / (predict_num + 0.000000001)
             recall = correct_num / (gold_num + 0.000000001)
             f1 = 2 * precision * recall / (precision + recall + 0.000000001)
@@ -261,9 +263,9 @@ if __name__ == '__main__':
     data_path = './data_small/'
     data_path = '/home/gene/Documents/Data/CCKS2019/'
 
-    trainer = Trainer('test', '12230545',
+    trainer = Trainer('train', '12230545',
         data_path, pretrained_path, epochs = 100, 
-        use_word = False, use_char = True, use_lm = True, use_crf = True, 
+        use_word = False, use_char = True, use_lm = True, use_crf = True, use_lexicon = True, 
         use_pretrained_word = False, use_pretrained_char = False, 
         attention_pooling = False)
     #trainer.train()

@@ -7,13 +7,14 @@ from crf import CRF
 from CharEmbedding import CharEmbedding
 from WordEmbedding import WordEmbedding
 from LMEmbedding import LMEmbedding
-from Utils import *
+from LexiconEmbedding import LexiconEmbedding
+from Utils import logger
 
 class BiLSTM_CRF(nn.Module):
     def __init__(self, word_vocab, tag_vocab, 
-            char_emb_dim, word_emb_dim, lm_emb_dim, emb_dim, hidden_dim, num_layers, 
+            char_emb_dim, word_emb_dim, lm_emb_dim, lexicon_emb_dim, emb_dim, hidden_dim, num_layers, 
             batch_size, device, dropout = 0.5, 
-            use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True,
+            use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True, use_lexicon = True,
             use_pretrained_word = True, use_pretrained_char = True, 
             attention_pooling = False):
         super(BiLSTM_CRF, self).__init__()
@@ -34,11 +35,13 @@ class BiLSTM_CRF(nn.Module):
         self.use_cnn = use_cnn
         self.use_crf = use_crf
         self.use_lm = use_lm
+        self.use_lexicon = use_lexicon
         self.attention_pooling = attention_pooling
         
         # self.word_emb_dim = word_emb_dim
         # self.char_emb_dim = char_emb_dim
         self.lm_emb_dim = lm_emb_dim
+        self.lexicon_emb_dim = lexicon_emb_dim
         self.emb_dim = emb_dim # lstm input dim
         self.raw_emb_dim = 0 # emb_dim after concat
         if use_word:
@@ -52,13 +55,16 @@ class BiLSTM_CRF(nn.Module):
             self.char_embeds = CharEmbedding(word_vocab.char_to_ix, char_emb_dim, use_pretrained_char, use_cnn, attention_pooling, dropout = 0.5)
             self.char_emb_dim = self.char_embeds.get_emb_dim()
             self.raw_emb_dim += self.char_emb_dim 
-        
         if use_lm:
             self.lm_embeds = LMEmbedding(lm_emb_dim)
             self.raw_emb_dim += self.lm_emb_dim
+        if use_lexicon:
+            self.lexicon_embeds = LexiconEmbedding(lexicon_emb_dim, self.tag_vocab)
+            self.raw_emb_dim += self.lexicon_emb_dim
             
-        #self.embed_dense = nn.Linear(self.raw_emb_dim, self.emb_dim)
-        self.emb_dim = self.raw_emb_dim
+        if self.raw_emb_dim >= 512:
+            self.embed_dense = nn.Linear(self.raw_emb_dim, self.emb_dim)
+        #self.emb_dim = self.raw_emb_dim
         
         self.dropout1 = nn.Dropout(p = dropout)
         self.dropout2 = nn.Dropout(p = dropout)
@@ -112,7 +118,16 @@ class BiLSTM_CRF(nn.Module):
                 embeds = lm_embeds
             else:
                 embeds = torch.cat((embeds, lm_embeds), dim = -1)
-            #embeds = self.embed_dense(embeds) # (batch_size, sen_len, 256)
+        
+        if self.use_lexicon:
+            lexicon_embeds = self.lexicon_embeds(text) # (batch_size, sen_len, 256)
+            if embeds is None:
+                embeds = lexicon_embeds
+            else:
+                embeds = torch.cat((embeds, lexicon_embeds), dim = -1)
+            
+        if self.raw_emb_dim >= 512:
+            embeds = self.embed_dense(embeds) # (batch_size, sen_len, 256)
         
         embeds = self.dropout1(embeds) # (batch_size, sen_len, 256)
         if self.use_char and char_ids.dim() == 2: # no word embedding

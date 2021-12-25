@@ -3,3 +3,14 @@ __pycache__
 log
 loss
 model
+results
+test
+data_small
+Important
+allennlp
+
+Backup.py
+Preprocess.py
+scripts*
+checkpoint.pt
+install.txt
