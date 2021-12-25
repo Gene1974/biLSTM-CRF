@@ -108,16 +108,16 @@ def label_chinese_entity(text, tags, tag_list):
                     j += 1
             entity.append({
                 "text": ''.join(text[i: j + 1]),
-                "start_index": i,
-                "end_index": j + 1,
+                "start_pos": i,
+                "end_pos": j + 1,
                 "label": tags[i][2:]
             })
             i = j + 1
         elif tags[i].startswith("S-"):
             entity.append({
                 "text": text[i],
-                "start_index": i,
-                "end_index": i + 1,
+                "start_pos": i,
+                "end_pos": i + 1,
                 "label": tags[i][2:]
             })
             i += 1
