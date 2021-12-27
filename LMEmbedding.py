@@ -24,7 +24,7 @@ class LMEmbedding(nn.Module):
             options_file = path + 'elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json', 
             weight_file = path + 'elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5', 
             num_output_representations = 1,
-            requires_grad = requires_grad,
+            requires_grad = True,
             dropout = dropout
         )
         self.lm_emb_dim = lm_emb_dim

@@ -7,18 +7,18 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from biLSTM import BiLSTM_CRF
+from BiLSTM_CRF import BiLSTM_CRF
 from CCKSData import CCKSDataset, CCKSVocab
 from TagVocab import TagVocab
 from pytorchtools import EarlyStopping
 from Utils import logger, label_chinese_entity
 
 torch.manual_seed(1)
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 class Trainer():
     def __init__(self, 
-        mod = 'train', model_time = None, data_path = None, pretrained_path = None, epochs = 100, 
+        mod = 'train', model_time = None, data_path = None, epochs = 100, 
         use_word = True, use_char = True, use_lm = True, use_crf = True, use_cnn = True, use_lexicon = True, 
         use_pretrained_word = True, use_pretrained_char = True, 
         attention_pooling = False
@@ -208,17 +208,16 @@ class Trainer():
                     relax_correct_entity = []
                     relax_correct_entity_gold = []
                     relax_correct_entity_pred = []
-                    print(''.join(text[j]))
                     # print('correct:')
                     # for entity in gold_entity:
                     #     if entity in pred_entity:
                     #         correct_entity.append(entity)
                     #         correct_num += 1
                     #         print(entity)
-                    # print('relaxed correct:')
                     for gold in gold_entity:
                         for pred in pred_entity:
-                            if max(pred['start_pos'], gold['start_pos']) <= min(pred['end_pos'], gold['end_pos']) and pred['label'] == gold['label']:
+                            # [start, end)
+                            if max(pred['start_pos'], gold['start_pos']) < min(pred['end_pos'], gold['end_pos']) and pred['label'] == gold['label']:
                                 relax_correct_num += 1
                                 if gold == pred:
                                     correct_num += 1
@@ -227,22 +226,23 @@ class Trainer():
                                     relax_correct_entity.append([gold, pred])
                                     relax_correct_entity_gold.append(gold)
                                     relax_correct_entity_pred.append(pred)
-                    
-                    print('correct:')
-                    for e in correct_entity:
-                        print(e)
-                    print('relax correct:')
-                    for e in relax_correct_entity:
-                        print(e[0], e[1])
-                    print('gold:')
-                    for e in gold_entity:
-                        if e not in correct_entity and e not in relax_correct_entity_gold:
-                            print(e)
-                    print('predict:')
-                    for e in pred_entity:
-                        if e not in correct_entity and e not in relax_correct_entity_pred:
-                            print(e)
-                    print()
+                    # # print ner results
+                    # print(''.join(text[j]))
+                    # print('correct:')
+                    # for e in correct_entity:
+                    #     print(e)
+                    # print('relax correct:')
+                    # for e in relax_correct_entity:
+                    #     print(e[0], e[1])
+                    # print('gold:')
+                    # for e in gold_entity:
+                    #     if e not in correct_entity and e not in relax_correct_entity_gold:
+                    #         print(e)
+                    # print('predict:')
+                    # for e in pred_entity:
+                    #     if e not in correct_entity and e not in relax_correct_entity_pred:
+                    #         print(e)
+                    # print()
 
             precision = correct_num / (predict_num + 0.000000001)
             recall = correct_num / (gold_num + 0.000000001)
@@ -258,13 +258,11 @@ class Trainer():
 
 
 if __name__ == '__main__':
-    pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
-    #pretrained_path = '/home/gene/Documents/Data/Glove/glove.42B.300d.txt'
     data_path = './data_small/'
     data_path = '/home/gene/Documents/Data/CCKS2019/'
 
-    trainer = Trainer('train', '12230545',
-        data_path, pretrained_path, epochs = 100, 
+    trainer = Trainer('train', '12260511',
+        data_path, epochs = 100, 
         use_word = False, use_char = True, use_lm = True, use_crf = True, use_lexicon = True, 
         use_pretrained_word = False, use_pretrained_char = False, 
         attention_pooling = False)

@@ -130,7 +130,7 @@ def label_sentence_entity(text, tags, tag_list):
         tags = tags.tolist()
     tags = [tag_list[tag] for tag in tags]
     entity = []
-    count = len(tags)
+    count = len(text)
     i = 0
     while i < count:
         if tags[i].startswith("B-"):

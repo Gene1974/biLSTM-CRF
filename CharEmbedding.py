@@ -8,7 +8,7 @@ from Utils import logger
 
 
 class CharEmbedding(nn.Module):
-    def __init__(self, char_to_ix, char_emb_dim, use_pretrained_char = False, use_cnn = True, attention_pooling = False, dropout = 0.5):
+    def __init__(self, char_to_ix, char_emb_dim, use_pretrained_char = False, fine_tune = False, use_cnn = True, attention_pooling = False, dropout = 0.5):
         super().__init__()
         path = '/data/word_embedding/cnchar.model'
         self.n_chars = len(char_to_ix)
@@ -18,9 +18,10 @@ class CharEmbedding(nn.Module):
         self.attention_pooling = attention_pooling
 
         if use_pretrained_char:
+            self.freeze = not fine_tune
             self.embeddings = self.init_char_embedding(path, char_to_ix)
             self.embeddings = torch.tensor(self.embeddings, dtype = torch.float)
-            self.char_embeds = nn.Embedding.from_pretrained(self.embeddings)
+            self.char_embeds = nn.Embedding.from_pretrained(self.embeddings, freeze = self.freeze) # fine-tune
             self.char_emb_dim = self.embeddings.shape[1]
             logger('pretrained char path: {}'.format(path))
             logger('Load pretrained char embedding. Shape: {}'.format(self.embeddings.shape))

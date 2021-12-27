@@ -26,15 +26,15 @@ def bio1_bioes(tags):
 
 # load pretrains
 class WordVocab():
-    def __init__(self, dataset_path = None, pretrained_path = None):
+    def __init__(self, dataset_path = None):
         self.OOV_TAG = '<OOV>'
         self.PAD_TAG = '<PAD>'
         if dataset_path is None:
             dataset_path = '/home/gene/Documents/Data/CoNLL2003/'
-        if pretrained_path is None:
-            pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
+        pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
         self.load_dataset(dataset_path)
-        self.load_glove(pretrained_path)
+        #self.load_glove(pretrained_path)
+        self.load_senna(pretrained_path)
 
     def load_dataset(self, path):
         self.word_list = [self.PAD_TAG, self.OOV_TAG] # 没有大写
@@ -76,6 +76,28 @@ class WordVocab():
         used_idx = [word_to_ix[word] if word in word_to_ix else word_to_ix[self.OOV_TAG] for word in self.word_list]
         self.word_emb = torch.tensor(word_emb, dtype = torch.float)[used_idx]
         return self.word_emb
+        
+    def load_senna(self, path):
+        path = '/data/senna/'
+        word_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
+        word_emb = []
+        with open(path + 'word_list.txt', 'r') as f:
+            for line in f.readlines():
+                word = line.strip()
+                word_to_ix[word] = len(word_to_ix)
+        with open(path + 'embeddings.txt', 'r') as f:
+            for line in f.readlines():
+                embeds = line.strip().split(' ')
+                embeds = [float(i) for i in embeds]
+                word_to_ix[word] = len(word_to_ix)
+                word_emb.append(embeds)
+        
+        word_emb.insert(0, [0.] * len(word_emb[0]))
+        word_emb.insert(0, [0.] * len(word_emb[0]))
+        
+        used_idx = [word_to_ix[word] if word in word_to_ix else word_to_ix[self.OOV_TAG] for word in self.word_list]
+        self.word_emb = torch.tensor(word_emb, dtype = torch.float)[used_idx]
+        return self.word_emb
     
     def map_word(self, words, dim = 2):
         if dim == 2: # words
@@ -90,26 +112,26 @@ class WordVocab():
             return [self.char_to_ix[char] if char in self.char_to_ix else self.char_to_ix[self.OOV_TAG] for char in words]
 
 # map BIOES tags
-class TagVocab():
-    def __init__(self):
-        self.START_TAG = 'START'
-        self.STOP_TAG = 'STOP'
-        self.PAD_TAG = '<PAD>'
+# class TagVocab():
+#     def __init__(self):
+#         self.START_TAG = 'START'
+#         self.STOP_TAG = 'STOP'
+#         self.PAD_TAG = '<PAD>'
 
-        tag_list = ['B-LOC', 'B-MISC', 'B-ORG', 'B-PER', 'I-LOC', 'I-MISC', 'I-ORG', 'I-PER',
-                    'E-LOC', 'E-MISC', 'E-ORG', 'E-PER', 'S-LOC', 'S-MISC', 'S-ORG', 'S-PER',
-                    'O']
-        self.tag_to_ix = {tag_list[i]: i + 1 for i in range(len(tag_list))}
-        self.tag_to_ix[self.PAD_TAG] = 0
-        self.tag_to_ix[self.START_TAG] = len(self.tag_to_ix)
-        self.tag_to_ix[self.STOP_TAG] = len(self.tag_to_ix)
-        self.ix_to_tag = {value: key for key, value in self.tag_to_ix.items()}
+#         tag_list = ['B-LOC', 'B-MISC', 'B-ORG', 'B-PER', 'I-LOC', 'I-MISC', 'I-ORG', 'I-PER',
+#                     'E-LOC', 'E-MISC', 'E-ORG', 'E-PER', 'S-LOC', 'S-MISC', 'S-ORG', 'S-PER',
+#                     'O']
+#         self.tag_to_ix = {tag_list[i]: i + 1 for i in range(len(tag_list))}
+#         self.tag_to_ix[self.PAD_TAG] = 0
+#         self.tag_to_ix[self.START_TAG] = len(self.tag_to_ix)
+#         self.tag_to_ix[self.STOP_TAG] = len(self.tag_to_ix)
+#         self.ix_to_tag = {value: key for key, value in self.tag_to_ix.items()}
 
-    def map_tag(self, tags, dim = 2):
-        if dim == 2:
-            return [self.tag_to_ix[tag] for tag in tags]
-        if dim == 1:
-            return self.tag_to_ix[tags]
+#     def map_tag(self, tags, dim = 2):
+#         if dim == 2:
+#             return [self.tag_to_ix[tag] for tag in tags]
+#         if dim == 1:
+#             return self.tag_to_ix[tags]
 
 class ConllDataset(Dataset):
     def __init__(self, path, word_vocab = None, tag_vocab = None):
