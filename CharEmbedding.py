@@ -38,14 +38,14 @@ class CharEmbedding(nn.Module):
     def init_char_embedding(self, path, vocab_to_ix):
         word2index = Word2Vec.load(path) # Word2Vec(vocab=20022, vector_size=200, alpha=0.025)
         matrix=np.random.normal(size=(len(vocab_to_ix)+1,200))
-        pretrained = 0
+        #pretrained = 0
 
         for word in vocab_to_ix.keys():
             index=vocab_to_ix[word]
             if word in word2index.wv:
                 matrix[index,:]=word2index.wv[word]
-                pretrained += 1
-        print(pretrained)
+                #pretrained += 1
+        #print(pretrained)
         return matrix
 
     def get_emb_dim(self):

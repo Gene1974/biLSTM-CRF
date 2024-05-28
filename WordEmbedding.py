@@ -8,16 +8,18 @@ class WordEmbedding(nn.Module):
         super().__init__()
         self.word_vocab = word_vocab
         self.n_words = len(word_vocab.word_to_ix)
-        self.freeze = not fine_tune
+        self.fine_tune = False
         if use_pretrained_word:
             self.word_emb_dim = word_vocab.word_emb.shape[1]
             self.word_emb = word_vocab.word_emb
-            self.word_embeds = nn.Embedding.from_pretrained(self.word_emb, freeze = self.freeze)
-            logger('Load pretrained word embedding, freeze = {}. Shape: {}'.format(self.freeze, self.word_emb.shape))
+            self.word_embeds = nn.Embedding.from_pretrained(self.word_emb, freeze = not self.fine_tune)
+            logger('Load word embedding, fine-tune = {}. Shape: {}'.format(self.fine_tune, self.word_emb.shape))
         else:
             self.word_emb_dim = word_emb_dim
-            #self.word_embeds = CharEmbedding(self.n_words, self.word_emb_dim, use_pretrained_char)
-            self.char_embeds = nn.Embedding(self.n_chars, word_emb_dim)
+            self.word_embeds = nn.Embedding(self.n_words, word_emb_dim)
+
+    def get_emb_dim(self):
+        return self.word_emb_dim
 
     def forward(self, word_ids):
         '''

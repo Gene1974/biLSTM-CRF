@@ -53,17 +53,31 @@ class BiLSTM_CRF(nn.Module):
             else:
                 self.word_emb_dim = char_emb_dim
             self.word_embeds = WordEmbedding(word_vocab, self.word_emb_dim, use_pretrained_word, self.fine_tune_word)
+            self.word_emb_dim = self.word_embeds.get_emb_dim()
             self.raw_emb_dim += self.word_emb_dim
+        else:
+            self.word_emb_dim = 0
+        
         if use_char:
             self.char_embeds = CharEmbedding(word_vocab.char_to_ix, char_emb_dim, use_pretrained_char, self.fine_tune_char, use_cnn, attention_pooling, dropout = 0.5)
             self.char_emb_dim = self.char_embeds.get_emb_dim()
             self.raw_emb_dim += self.char_emb_dim 
+        else:
+            self.char_emb_dim = 0
+        
         if use_lm:
             self.lm_embeds = LMEmbedding(lm_emb_dim)
+            self.lm_emb_dim = self.lm_embeds.get_emb_dim()
             self.raw_emb_dim += self.lm_emb_dim
+        else:
+            self.lm_emb_dim = 0
+        
         if use_lexicon:
             self.lexicon_embeds = LexiconEmbedding(lexicon_emb_dim, self.tag_vocab)
+            self.lexicon_emb_dim = self.lexicon_embeds.get_emb_dim()
             self.raw_emb_dim += self.lexicon_emb_dim
+        else:
+            self.lexicon_emb_dim = 0
             
         # if self.raw_emb_dim >= 512:
         #     self.embed_dense = nn.Linear(self.raw_emb_dim, self.emb_dim)
@@ -77,6 +91,10 @@ class BiLSTM_CRF(nn.Module):
         if use_crf:
             tag_dict = {value: key for key, value in self.tag_vocab.tag_to_ix.items()}
             self.crf = CRF(tag_dict)
+
+        logger('Embedding dim: total: {}, char: {}, word: {}, lm: {}, lexicon: {}'.format(
+            self.emb_dim, self.char_emb_dim, self.word_emb_dim, self.lm_emb_dim, self.lexicon_emb_dim
+        ))
 
     
     def forward(self, text, word_ids, word_mask, char_ids, char_mask, label = None): # (batch_size, sen_len)

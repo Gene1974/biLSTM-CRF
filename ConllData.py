@@ -30,8 +30,8 @@ class WordVocab():
         self.OOV_TAG = '<OOV>'
         self.PAD_TAG = '<PAD>'
         if dataset_path is None:
-            dataset_path = '/home/gene/Documents/Data/CoNLL2003/'
-        pretrained_path = '/home/gene/Documents/Data/Glove/glove.6B.100d.txt'
+            dataset_path = '/data/CoNLL2003/'
+        pretrained_path = '/data/Glove/glove.6B.100d.txt'
         self.load_dataset(dataset_path)
         #self.load_glove(pretrained_path)
         self.load_senna(pretrained_path)
@@ -78,7 +78,7 @@ class WordVocab():
         return self.word_emb
         
     def load_senna(self, path):
-        path = '/data/senna/'
+        path = '/data/Senna/'
         word_to_ix = {self.PAD_TAG: 0, self.OOV_TAG: 1}
         word_emb = []
         with open(path + 'word_list.txt', 'r') as f:
